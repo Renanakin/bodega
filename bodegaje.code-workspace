@@ -1,0 +1,55 @@
+{
+  "folders": [
+    {
+      "name": "docs",
+      "path": "docs"
+    },
+    {
+      "name": "api",
+      "path": "apps/api"
+    },
+    {
+      "name": "web",
+      "path": "apps/web"
+    },
+    {
+      "name": "db",
+      "path": "db"
+    },
+    {
+      "name": "infra",
+      "path": "infra"
+    }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "files.exclude": {
+      "**/.git": true,
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/.mypy_cache": true,
+      "**/.venv": true,
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.next": true
+    },
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.venv": true
+    },
+    "python.defaultInterpreterPath": "${workspaceFolder:api}/.venv/Scripts/python.exe",
+    "typescript.tsdk": "apps/web/node_modules/typescript/lib"
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "esbenp.prettier-vscode",
+      "dbaeumer.vscode-eslint",
+      "ms-azuretools.vscode-docker",
+      "ms-vscode.vscode-json"
+    ]
+  }
+}
+
