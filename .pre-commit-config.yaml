@@ -1,0 +1,39 @@
+# Pre-commit hooks para Bodegaje (Fase 0 - Hardening de secretos).
+# Instalar una vez:
+#   pip install pre-commit
+#   pre-commit install
+# Ejecutar manualmente sobre todo el repo:
+#   pre-commit run --all-files
+#
+# Los hooks se corren automaticamente en cada `git commit`. Si alguno
+# falla, el commit se rechaza y el autor debe corregir antes de reintentar.
+
+repos:
+  # ------------------------------------------------------------------
+  # 1. Secret scanning con gitleaks.
+  # Detecta JWT secrets, AWS keys, tokens, passwords y cualquier string
+  # que matchee las reglas built-in. Configuracion por defecto (sin
+  # .gitleaks.toml custom) ya cubre los patrones comunes.
+  # ------------------------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks-precommit
+    rev: v1.0.0
+    hooks:
+      - id: gitleaks
+
+  # ------------------------------------------------------------------
+  # 2. Hooks genericos de hygiene de archivos.
+  # ------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        # Excluir docker-compose que a veces tiene tags sueltos.
+        exclude: ^infra/docker/compose\..*\.yml$
+      - id: check-json
+      - id: end-of-file-fixer
+        # Solo aplicarlo a archivos de codigo, no a markdown / docs.
+        types: [python, javascript, jsx, ts, tsx, css, yaml, toml]
+      - id: trailing-whitespace
+        types: [python, javascript, jsx, ts, tsx, css, yaml, toml]
+      - id: mixed-line-ending
+        args: [--fix=lf]

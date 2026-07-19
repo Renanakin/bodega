@@ -1,4 +1,60 @@
+# API Runtime
 fastapi==0.116.1
 uvicorn[standard]==0.35.0
-pydantic-settings==2.10.1
+python-multipart==0.0.20
 
+# Configuration & Settings
+pydantic==2.10.5
+pydantic-settings==2.10.1
+email-validator==2.2.0
+
+# Database
+# ADR-0001: SQLAlchemy 2.0 async + asyncpg (driver nativo) + Alembic.
+# Versiones pinneadas al snapshot validado en CI; bumps deben pasar la matriz
+# de Python 3.12/3.14 antes de mergear a main.
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+psycopg2-binary==2.9.10
+aiosqlite==0.20.0  # driver async de SQLite (tests ultra-rápidos)
+
+# Cache, Queues & Pub/Sub
+redis==5.2.1
+
+# Async Workers
+arq==0.26.3
+
+# Authentication & Security
+itsdangerous==2.2.0
+argon2-cffi==23.1.0
+PyJWT==2.10.1
+
+# Email (Fase 7 - ADR-0004: SMTP async con aiosmtplib + Jinja2 inline CSS)
+aiosmtplib==3.0.1
+jinja2==3.1.5
+emails==0.6.0
+premailer==3.10.0
+
+# HTTP & Integration
+httpx==0.28.1
+tenacity==9.0.0
+
+# Observability
+structlog==24.4.0
+prometheus-client==0.21.1
+prometheus-fastapi-instrumentator==7.0.0
+sentry-sdk[fastapi]==2.19.2
+
+# Development Tools
+# ADR-0001 IMP-005: tests de integración con testcontainers[postgresql]
+# requieren Docker local. La fixture de tests/test_api_integration.py
+# hace `pytest.importorskip("testcontainers")` y `pytest.skip` si Docker
+# no está disponible.
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+pytest-postgresql==6.1.1
+testcontainers[postgresql]==4.8.0
+ruff==0.8.4
+mypy==1.13.0
+types-redis==4.6.0.20241004

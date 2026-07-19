@@ -1,7 +1,5 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
-
 from app.db.session import SQLiteDatabase, get_database
 from app.modules.auth.dependencies import require_roles
 from app.modules.auth.repository import AuthRepository
@@ -10,6 +8,7 @@ from app.modules.auth.service import AuthService
 from app.modules.warehouses.repository import WarehouseRepository
 from app.modules.warehouses.schemas import WarehouseCreate, WarehouseResponse
 from app.modules.warehouses.service import WarehouseService
+from fastapi import APIRouter, Depends, status
 
 router = APIRouter()
 

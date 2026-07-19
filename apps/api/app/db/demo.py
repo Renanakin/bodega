@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from app.core.config import settings
+from app.core.config import get_settings
 from app.db.session import create_database, utcnow
 from app.modules.auth.security import hash_password
 from app.modules.inventory.repository import InventoryRepository
@@ -21,7 +21,7 @@ from app.modules.warehouses.service import WarehouseService
 
 
 def reset_demo_database(db_path: str | Path | None = None) -> Path:
-    resolved_path = Path(db_path or settings.resolved_database_path)
+    resolved_path = Path(db_path or get_settings().resolved_database_path)
     if resolved_path.exists():
         resolved_path.unlink()
 
@@ -69,13 +69,13 @@ def reset_demo_database(db_path: str | Path | None = None) -> Path:
         )
 
     central = warehouse_service.create_warehouse(
-        WarehouseCreate(code="CENTRAL", name="Bodega Central", warehouse_type="central")
+        WarehouseCreate(code="CENTRAL", name="Bodega Central", warehouse_type="principal")
     )
     north = warehouse_service.create_warehouse(
-        WarehouseCreate(code="NORTE", name="Sucursal Norte", warehouse_type="sucursal")
+        WarehouseCreate(code="NORTE", name="Sucursal Norte", warehouse_type="auxiliar")
     )
     south = warehouse_service.create_warehouse(
-        WarehouseCreate(code="SUR", name="Sucursal Sur", warehouse_type="sucursal")
+        WarehouseCreate(code="SUR", name="Sucursal Sur", warehouse_type="auxiliar")
     )
 
     aceite = product_service.create_product(
@@ -172,5 +172,8 @@ def reset_demo_database(db_path: str | Path | None = None) -> Path:
 
 
 if __name__ == "__main__":
+    from app.core.logging import configure_logging, get_logger
+    configure_logging()
+    log = get_logger(__name__)
     path = reset_demo_database()
-    print(f"Demo database reset at: {path}")
+    log.info("demo.reset_completed", path=str(path))

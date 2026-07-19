@@ -10,7 +10,7 @@ insert into warehouses (
     '11111111-1111-1111-1111-111111111111',
     'CENTRAL',
     'Bodega Central',
-    'central',
+    'principal',
     true
 )
 on conflict (code) do nothing;

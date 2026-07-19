@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from uuid import UUID
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from app.core.errors import (
     InsufficientStockError,
@@ -18,7 +17,12 @@ from app.db.session import InventoryMovementRecord, StockLevelRecord, TransferRe
 from app.modules.inventory.repository import InventoryRepository
 from app.modules.products.repository import ProductRepository
 from app.modules.transfers.repository import TransferRepository
-from app.modules.transfers.schemas import TransferCreate, TransferDispatch, TransferReceive, TransferUpdate
+from app.modules.transfers.schemas import (
+    TransferCreate,
+    TransferDispatch,
+    TransferReceive,
+    TransferUpdate,
+)
 from app.modules.warehouses.repository import WarehouseRepository
 
 

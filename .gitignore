@@ -1,28 +1,54 @@
 .DS_Store
 Thumbs.db
 
+# Orquestadores / tooling local
 .omx/logs/
 .omx/state/
-
-node_modules/
-.npm-cache/
-dist/
-
-.venv/
-__pycache__/
-.pytest_cache/
-.mypy_cache/
-
-.env
-.env.local
-.env.production
-
-apps/web/node_modules/
-apps/web/.npm-cache/
-apps/web/dist/
-apps/api/data/*.sqlite3
-
-infra/docker/.env
 .codex/
 .kombai/
 .vscode/
+
+# Frontend: dependencias y build
+apps/web/node_modules/
+apps/web/.npm-cache/
+apps/web/dist/
+node_modules/
+.npm-cache/
+dist/
+build/
+
+# Backend: cache de Python
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage/
+.tox/
+
+# Secretos y configuracion local
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+.env.*.local
+infra/docker/.env
+
+# Backend: artefactos de runtime y desarrollo local
+apps/api/data/*.log
+apps/api/data/*.sqlite3
+apps/api/data/*.db
+apps/api/data/*.db-shm
+apps/api/data/*.db-wal
+apps/api/data/*.py
+# DB local de demo (en raiz de apps/api, no en data/)
+apps/api/*.sqlite3
+# Permitir explicitamente scripts utiles (no son runtime)
+!apps/api/data/db_schema_inspect.py
+
+# Auditoria local de fase 0 (snapshots de secretos quemados)
+auditoria-fase0/

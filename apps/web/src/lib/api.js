@@ -75,8 +75,8 @@ export async function fetchJson(path, fallback) {
   }
 }
 
-export function getJson(path) {
-  return request(path);
+export function getJson(path, options = {}) {
+  return request(path, options);
 }
 
 export function postJson(path, body) {
@@ -90,6 +90,17 @@ export function patchJson(path, body) {
   return request(path, {
     method: "PATCH",
     body: JSON.stringify(body),
+  });
+}
+
+export function deleteJson(path) {
+  return request(path, { method: "DELETE" });
+}
+
+export function putJson(path, body) {
+  return request(path, {
+    method: "PUT",
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
 

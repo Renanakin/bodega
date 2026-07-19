@@ -10,7 +10,7 @@ export function LoginPage() {
   const { login, isAuthenticated, ready, getErrorMessage } = useAuth();
   const { pushToast, setPendingLabel, clearPending } = useUi();
   const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("demo123");
+  const [password, setPassword] = useState("");
 
   if (ready && isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
@@ -63,12 +63,14 @@ export function LoginPage() {
             Entrar
           </button>
         </form>
-        <div className="plain-list">
-          <div>`admin` / `demo123`</div>
-          <div>`supervisor` / `demo123`</div>
-          <div>`origen` / `demo123`</div>
-          <div>`destino` / `demo123`</div>
-        </div>
+        {import.meta.env.DEV && (
+          <div className="plain-list">
+            <div>`admin` / `demo123`</div>
+            <div>`supervisor` / `demo123`</div>
+            <div>`origen` / `demo123`</div>
+            <div>`destino` / `demo123`</div>
+          </div>
+        )}
       </section>
     </div>
   );

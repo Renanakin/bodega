@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { GlobalPendingBar } from "../components/GlobalPendingBar";
+import { NotificationsCenter } from "../components/NotificationsCenter";
 import { ToastViewport } from "../components/ToastViewport";
 import { useAuth } from "../context/AuthContext";
 import { useUi } from "../context/UiContext";
@@ -10,8 +11,15 @@ const navigation = [
   { to: "/warehouses", label: "Bodegas", presentation: false },
   { to: "/receipts", label: "Recepciones", presentation: false },
   { to: "/inventory", label: "Inventario", presentation: true },
+  { to: "/multibodega", label: "Multibodega", presentation: true },
   { to: "/products", label: "Productos", presentation: false },
-  { to: "/transfers", label: "Transferencias", presentation: true },
+  { to: "/categorias", label: "Categorias", presentation: false },
+  { to: "/solicitudes", label: "Solicitudes", presentation: true },
+  { to: "/recepcion", label: "Bandeja Recepcion", presentation: false },
+  { to: "/consolidador", label: "Consolidador", presentation: false },
+  { to: "/ordenes-compra", label: "Ordenes Compra", presentation: true },
+  { to: "/supervisores", label: "Supervisores", presentation: false },
+  { to: "/transfers", label: "Transferencias (legacy)", presentation: false },
   { to: "/replenishment", label: "Reposicion", presentation: false },
   { to: "/slotting", label: "Slotting", presentation: false },
   { to: "/chat", label: "Chat", presentation: false },
@@ -140,6 +148,7 @@ export function AppShell() {
             />
           </div>
           <div className="topbar-actions">
+            <NotificationsCenter />
             <button className="ghost-button" type="button" onClick={togglePresentationMode}>
               {presentationMode ? "Salir presentacion" : "Modo presentacion"}
             </button>

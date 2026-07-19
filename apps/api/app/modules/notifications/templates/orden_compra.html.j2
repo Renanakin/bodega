@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>{{ subject }}</title>
+  <style>
+    /* Fallback para clientes que respetan <style> en head.
+       premailer moverá estas reglas a inline style="..." automaticamente. */
+    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    table { border-collapse: collapse; }
+    a { color: #0f766e; }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f4f4f5; -webkit-text-size-adjust: 100%;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f5; padding: 32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
+          <!-- Header con branding -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); padding: 32px 24px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">Bodegaje</h1>
+              <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.85); font-size: 14px;">Orden de Compra</p>
+            </td>
+          </tr>
+          <!-- Contenido principal -->
+          <tr>
+            <td style="padding: 32px 24px;">
+              <h2 style="margin: 0 0 16px 0; color: #1c1916; font-size: 20px; font-weight: 600;">Hola {{ supervisor.nombre }},</h2>
+              <p style="margin: 0 0 24px 0; color: #44403c; font-size: 15px; line-height: 1.5;">
+                Se ha generado una nueva orden de compra que requiere tu aprobaci&oacute;n.
+              </p>
+              <!-- Tabla resumen -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px; background-color: #fafaf9; border-radius: 8px; padding: 12px 0;">
+                <tr>
+                  <td style="padding: 8px 16px; color: #78716c; font-size: 13px; width: 40%;">ID Orden</td>
+                  <td style="padding: 8px 16px; color: #1c1916; font-size: 14px; font-weight: 600;">{{ oc.codigo }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 16px; color: #78716c; font-size: 13px;">Bodega Origen</td>
+                  <td style="padding: 8px 16px; color: #1c1916; font-size: 14px;">{{ oc.bodega_origen_nombre }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 16px; color: #78716c; font-size: 13px;">Solicitante</td>
+                  <td style="padding: 8px 16px; color: #1c1916; font-size: 14px;">{{ oc.solicitante_nombre }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 16px; color: #78716c; font-size: 13px;">Proveedor</td>
+                  <td style="padding: 8px 16px; color: #1c1916; font-size: 14px;">{{ oc.proveedor_nombre }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 16px; color: #78716c; font-size: 13px;">Fecha</td>
+                  <td style="padding: 8px 16px; color: #1c1916; font-size: 14px;">{{ oc.fecha_creacion }}</td>
+                </tr>
+              </table>
+              <!-- Detalle de la compra -->
+              <h3 style="margin: 0 0 12px 0; color: #1c1916; font-size: 16px; font-weight: 600;">Detalle de la compra</h3>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse; margin-bottom: 24px; border: 1px solid #e7e5e4; border-radius: 8px; overflow: hidden;">
+                <thead>
+                  <tr style="background-color: #f4f4f5;">
+                    <th align="left" style="padding: 10px 8px; color: #44403c; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">SKU</th>
+                    <th align="left" style="padding: 10px 8px; color: #44403c; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Producto</th>
+                    <th align="right" style="padding: 10px 8px; color: #44403c; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Cant.</th>
+                    <th align="right" style="padding: 10px 8px; color: #44403c; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Costo Unit.</th>
+                    <th align="right" style="padding: 10px 8px; color: #44403c; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for linea in oc.lineas %}
+                  <tr style="border-bottom: 1px solid #e7e5e4;">
+                    <td style="padding: 10px 8px; color: #1c1916; font-size: 13px; font-family: 'SF Mono', 'Consolas', monospace;">{{ linea.sku }}</td>
+                    <td style="padding: 10px 8px; color: #1c1916; font-size: 13px;">{{ linea.nombre }}</td>
+                    <td align="right" style="padding: 10px 8px; color: #1c1916; font-size: 13px;">{{ linea.cantidad }}</td>
+                    <td align="right" style="padding: 10px 8px; color: #1c1916; font-size: 13px;">${{ linea.costo_unitario }}</td>
+                    <td align="right" style="padding: 10px 8px; color: #1c1916; font-size: 13px; font-weight: 600;">${{ linea.subtotal }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+                <tfoot>
+                  <tr style="background-color: #f4f4f5;">
+                    <td colspan="4" align="right" style="padding: 14px 8px; color: #44403c; font-size: 14px; font-weight: 600;">Total Estimado</td>
+                    <td align="right" style="padding: 14px 8px; color: #0f766e; font-size: 18px; font-weight: 700;">${{ oc.total_estimado }}</td>
+                  </tr>
+                </tfoot>
+              </table>
+              {% if oc.notas %}
+              <p style="margin: 0 0 24px 0; padding: 12px 16px; background-color: #fef3c7; border-left: 3px solid #f59e0b; color: #44403c; font-size: 14px; line-height: 1.5; border-radius: 4px;">
+                <strong style="color: #1c1916;">Notas:</strong> {{ oc.notas }}
+              </p>
+              {% endif %}
+              <p style="margin: 0 0 24px 0; color: #44403c; font-size: 14px; line-height: 1.5;">
+                Para aprobar o rechazar esta orden, hac&eacute; clic en uno de los siguientes botones:
+              </p>
+              <!-- Botones aprobar / rechazar -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                <tr>
+                  <td align="center" style="padding: 8px;">
+                    <a href="{{ approve_url }}" style="display: inline-block; padding: 14px 32px; background-color: #027a48; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">Aprobar</a>
+                  </td>
+                  <td align="center" style="padding: 8px;">
+                    <a href="{{ reject_url }}" style="display: inline-block; padding: 14px 32px; background-color: #b42318; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">Rechazar</a>
+                  </td>
+                </tr>
+              </table>
+              <!-- Fallback URL -->
+              <p style="margin: 0; padding: 12px 16px; background-color: #fafaf9; border-radius: 6px; color: #a8a29e; font-size: 12px; line-height: 1.4;">
+                <strong style="color: #78716c;">Este enlace expira el {{ token_expires_at }}.</strong><br>
+                Si no puedes hacer clic, copia y pega esta URL en tu navegador:<br>
+                <a href="{{ approve_url }}" style="color: #0f766e; word-break: break-all;">{{ approve_url }}</a>
+              </p>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f4f4f5; padding: 16px 24px; text-align: center; color: #a8a29e; font-size: 12px; line-height: 1.4;">
+              <p style="margin: 0 0 4px 0;">Bodegaje &middot; Sistema de Inventario Multi-Bodega</p>
+              <p style="margin: 0;">Email generado autom&aacute;ticamente. Por favor no respondas a este mensaje.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

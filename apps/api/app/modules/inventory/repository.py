@@ -159,3 +159,44 @@ class InventoryRepository:
             """
         )
         return int(row["total"]) if row is not None else 0
+
+    # -------------------------------------------------------- Fase 8: params
+
+    def upsert_stock_parameters(
+        self,
+        warehouse_id: UUID,
+        product_id: UUID,
+        min_quantity: Decimal,
+        max_quantity: Decimal | None,
+    ) -> None:
+        """Crea o actualiza la tupla ``(min, max)`` de un stock_level.
+
+        - Si la fila existe, actualiza ``min_quantity``, ``max_quantity`` y
+          ``updated_at``.
+        - Si NO existe, crea la fila con ``quantity=0``.
+
+        No verifica existencia de warehouse/product: eso es responsabilidad
+        del service (que ya tiene el contexto de error de dominio).
+        """
+        from app.db.session import utcnow  # noqa: PLC0415
+
+        now = utcnow().isoformat()
+        self._db.execute(
+            """
+            INSERT INTO stock_levels (
+                id, warehouse_id, product_id, quantity, min_quantity, max_quantity, updated_at
+            ) VALUES (?, ?, ?, 0, ?, ?, ?)
+            ON CONFLICT(warehouse_id, product_id) DO UPDATE SET
+                min_quantity = excluded.min_quantity,
+                max_quantity = excluded.max_quantity,
+                updated_at = excluded.updated_at
+            """,
+            (
+                str(uuid.uuid4()),
+                str(warehouse_id),
+                str(product_id),
+                str(min_quantity),
+                str(max_quantity) if max_quantity is not None else None,
+                now,
+            ),
+        )

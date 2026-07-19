@@ -1,0 +1,134 @@
+[project]
+name = "bodegaje-api"
+version = "0.1.0"
+description = "Backend FastAPI del sistema multi-bodega"
+requires-python = ">=3.12"
+readme = "README.md"
+
+# ----------------------------------------------------------------------
+# Ruff (linter + formatter)
+# Ref: https://docs.astral.sh/ruff/
+# ----------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests"]
+extend-exclude = ["migrations", "alembic/versions"]
+
+[tool.ruff.lint]
+# Reglas base + extras que cubren las Reglas de Oro
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+    "N",   # pep8-naming
+    "S",   # flake8-bandit (seguridad)
+    "T20", # flake8-print (NO print en producción)
+    "RET", # flake8-return
+    "ARG", # unused arguments
+    "PTH", # use pathlib
+    "ERA", # eradicate commented-out code
+]
+ignore = [
+    "E501",  # line length (manejado por formatter)
+    "B008",  # do not perform function calls in defaults (FastAPI Depends)
+    "S101",  # use of assert (OK en tests)
+    "S104",  # hardcoded bind to all interfaces (OK en docker)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "T20", "ARG", "PTH"]
+"alembic/**/*.py" = ["E", "F", "N"]
+# class X(str, enum.Enum) es válido y portable entre Postgres y SQLite.
+"app/db/models/*.py" = ["UP042"]
+# Código legacy de Fase 0/1 (SQLiteDatabase con sqlite3 stdlib). DEPRECAR en Fase 3+.
+"app/db/session.py" = ["SIM105"]
+
+# Reglas custom: prohibiciones de las Reglas de Oro
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+# ----------------------------------------------------------------------
+# mypy (type-check)
+# ----------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# Librerías sin stubs
+module = ["arq.*", "emails.*", "premailer.*"]
+ignore_missing_imports = true
+
+# ----------------------------------------------------------------------
+# pytest
+# ----------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--showlocals",
+    "--tb=short",
+]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "unit: pure unit tests (no I/O)",
+    "integration: integration tests (DB, Redis)",
+    "e2e: end-to-end tests (full stack)",
+    "concurrency: tests that exercise concurrent access",
+    "slow: tests that take >1s",
+    "live: tests that require real Nginx/Postgres (httpx live server)",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:passlib.*",
+    "ignore::DeprecationWarning:pydantic.*",
+]
+
+# ----------------------------------------------------------------------
+# Coverage
+# ----------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = [
+    "app/main.py",
+    "app/core/logging.py",
+    "app/**/__init__.py",
+    "alembic/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "\\.\\.\\.",
+]

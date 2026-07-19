@@ -24,5 +24,34 @@ export default [
       "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
     },
   },
+  {
+    // Tests (Fase 2): vitest no está instalado todavía; los tests viven
+    // como referencia hasta que se añada vitest + RTL al package.json.
+    files: ["src/__tests__/**/*.{js,jsx}"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      parserOptions: {
+        ecmaFeatures: {
+          jsx: true,
+        },
+      },
+      globals: {
+        ...globals.browser,
+        describe: "readonly",
+        it: "readonly",
+        test: "readonly",
+        expect: "readonly",
+        vi: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+        beforeAll: "readonly",
+        afterAll: "readonly",
+      },
+    },
+    rules: {
+      "no-unused-vars": "off",
+    },
+  },
 ];
 

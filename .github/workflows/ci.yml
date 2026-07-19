@@ -1,0 +1,204 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Lint with ruff
+        working-directory: apps/api
+        run: |
+          ruff check app tests
+          ruff format --check app tests
+      - name: Type check with mypy
+        working-directory: apps/api
+        run: |
+          mypy app
+
+  test-backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: bodegaje_test
+          POSTGRES_USER: bodegaje
+          POSTGRES_PASSWORD: bodegaje
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://bodegaje:bodegaje@localhost:5432/bodegaje_test
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-test-secret-32-chars-long-XXXXXX
+      SMTP_HOST: localhost
+      SMTP_FROM: noreply@bodega.example
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run migrations
+        working-directory: apps/api
+        run: alembic upgrade head
+      - name: Run tests with coverage
+        working-directory: apps/api
+        run: |
+          pytest --cov=app --cov-fail-under=80 --cov-report=term-missing
+
+  lint-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci --cache .npm-cache
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan secrets
+        run: |
+          if grep -rE "postgres://[^/\s]+:[^@\s]+@" apps/ infra/ 2>/dev/null; then
+            echo "::error::Hardcoded credentials found"
+            exit 1
+          fi
+      - name: gitleaks full scan
+        run: |
+          # Instalar gitleaks (binario Linux, no el .exe de Windows)
+          curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh -s -- -b /usr/local/bin
+          gitleaks version
+          # Escanear todo el repo (commits + filesystem)
+          gitleaks detect --source . --no-banner --redact
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+  # ---------------------------------------------------------------------
+  # Fase 10: Hardening pipeline (security + nginx + infra)
+  # ---------------------------------------------------------------------
+  hardening-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install bandit
+        working-directory: apps/api
+        run: pip install bandit
+      - name: Bandit security scan
+        working-directory: apps/api
+        run: |
+          bandit -r app/ -f json -o /tmp/bandit-report.json || true
+          # No fallar el build por warnings de severidad baja; solo HIGH.
+          if [ -f /tmp/bandit-report.json ]; then
+            python -c "
+import json, sys
+with open('/tmp/bandit-report.json') as f:
+    data = json.load(f)
+high = [r for r in data.get('results', []) if r.get('issue_severity') == 'HIGH']
+if high:
+    print(f'::error::Bandit found {len(high)} HIGH severity issues')
+    for r in high[:10]:
+        print(f'  - {r[\"test_id\"]} {r[\"test_name\"]}: {r[\"filename\"]}:{r[\"line_number\"]}')
+    sys.exit(1)
+print('Bandit: 0 HIGH severity issues')
+"
+          fi
+      - name: Verify .env.example has all placeholders
+        run: |
+          if grep -E "^[A-Z_]+=$" infra/.env.example; then
+            echo "::error::infra/.env.example has empty values (should be __PLACEHOLDER__)"
+            exit 1
+          fi
+          if ! grep -E "__CAMBIAR_EN_PRODUCCION__|__GENERAR_CON_" infra/.env.example; then
+            echo "::error::infra/.env.example missing __PLACEHOLDER__ markers"
+            exit 1
+          fi
+          echo ".env.example structure OK"
+      - name: Verify nginx production config has security headers
+        run: |
+          nginx_conf="infra/docker/nginx/conf.d/production.conf"
+          for header in "Strict-Transport-Security" "X-Frame-Options" "X-Content-Type-Options" "Content-Security-Policy" "Permissions-Policy"; do
+            if ! grep -q "$header" "$nginx_conf"; then
+              echo "::error::$nginx_conf missing header: $header"
+              exit 1
+            fi
+          done
+          if ! grep -q "server_tokens off" "$nginx_conf"; then
+            echo "::error::$nginx_conf missing 'server_tokens off'"
+            exit 1
+          fi
+          if ! grep -q "limit_req_zone" "$nginx_conf"; then
+            echo "::error::$nginx_conf missing rate limit zone"
+            exit 1
+          fi
+          echo "Nginx production config: all security headers present"
+      - name: Verify docker compose production is valid
+        run: |
+          docker compose -f infra/docker/docker-compose.yml \
+                         -f infra/docker/compose.production.yml config -q
+          echo "docker compose production: config valid"
+      - name: Verify backup script syntax (bash)
+        run: |
+          bash -n infra/scripts/backup-postgres.sh
+          bash -n infra/scripts/restore-postgres.sh
+          bash -n infra/scripts/pre-deploy-check.sh
+          bash -n infra/scripts/check-env-isolation.sh
+          echo "All bash scripts: syntax OK"
+      - name: Verify generate-secrets.py runs
+        run: |
+          python infra/scripts/generate-secrets.py --print-only | grep -E "^(POSTGRES_PASSWORD|JWT_SECRET|SECRET_KEY)=.+$"
+          echo "generate-secrets.py: runs OK"
+      - name: Validate env isolation (no real secrets in .example files)
+        run: |
+          # El regex [A-Za-z0-9+/=_-]{20,} matchea placeholders como
+          # __CAMBIAR_EN_PRODUCCION__ y __GENERAR_CON_..., que tienen 20+
+          # chars alfanumericos con underscores. Filtramos placeholders
+          # explícitamente para NO generar falsos positivos en CI.
+          if grep -rE "(JWT_SECRET|SECRET_KEY|POSTGRES_PASSWORD|SMTP_PASSWORD)\s*=\s*[A-Za-z0-9+/=_-]{20,}" infra/.env.example infra/.env.production.example apps/api/.env.example 2>/dev/null | grep -vE "=__|CHANGE_ME|GENERAR_CON|placeholder"; then
+            echo "::error::.env.example files contain what looks like real secrets"
+            exit 1
+          fi
+          echo "No real secrets in .example files"

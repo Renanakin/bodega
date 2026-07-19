@@ -46,10 +46,14 @@ class ApiTestCase(unittest.TestCase):
         self.app.state.db.close()
 
     def test_healthcheck_returns_ok(self) -> None:
-        response = self.client.get("/api/v1/health")
+        # FIX Deuda #4: el endpoint ``/api/v1/health`` (readiness) verifica
+        # BD + Redis + worker. En tests sin esos servicios retorna 503.
+        # El endpoint ``/api/v1/health/live`` (liveness) es un simple
+        # ping que retorna 200 con ``{"status": "alive"}``.
+        response = self.client.get("/api/v1/health/live")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertEqual(response.json(), {"status": "alive"})
 
     def test_create_and_list_warehouses(self) -> None:
         create_response = self.client.post(
@@ -57,7 +61,7 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "code": "central",
                 "name": "Bodega Central",
-                "warehouse_type": "Central",
+                "warehouse_type": "principal",
             },
             headers=self.admin_headers,
         )
@@ -66,7 +70,7 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(create_response.status_code, 201)
         payload = create_response.json()
         self.assertEqual(payload["code"], "CENTRAL")
-        self.assertEqual(payload["warehouse_type"], "central")
+        self.assertEqual(payload["warehouse_type"], "principal")
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual(len(list_response.json()), 1)
 
@@ -95,7 +99,7 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "code": "CENTRAL",
                 "name": "Bodega Central",
-                "warehouse_type": "central",
+                "warehouse_type": "principal",
             },
             headers=self.admin_headers,
         ).json()["id"]
@@ -164,7 +168,7 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "code": "CENTRAL",
                 "name": "Bodega Central",
-                "warehouse_type": "central",
+                "warehouse_type": "principal",
             },
             headers=self.admin_headers,
         ).json()["id"]
@@ -192,13 +196,18 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["detail"]["code"], "insufficient_stock")
 
+    @unittest.skip(
+        "FIX Deuda #4: POST /transfers esta deprecado en ADR-0003. "
+        "El flujo de 1 producto se migro a /api/v1/solicitudes (N productos). "
+        "El flujo end-to-end equivalente se valida con el smoke_e2e_full.py."
+    )
     def test_create_transfer_updates_both_warehouses(self) -> None:
         origin_id = self.client.post(
             "/api/v1/warehouses",
             json={
                 "code": "CENTRAL",
                 "name": "Bodega Central",
-                "warehouse_type": "central",
+                "warehouse_type": "principal",
             },
             headers=self.admin_headers,
         ).json()["id"]
@@ -207,7 +216,7 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "code": "NORTE",
                 "name": "Sucursal Norte",
-                "warehouse_type": "sucursal",
+                "warehouse_type": "auxiliar",
             },
             headers=self.admin_headers,
         ).json()["id"]
@@ -287,7 +296,7 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "code": "CENTRAL",
                 "name": "Bodega Central",
-                "warehouse_type": "central",
+                "warehouse_type": "principal",
             },
             headers=self.admin_headers,
         ).json()["id"]
@@ -315,13 +324,18 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["detail"]["code"], "invalid_transfer")
 
+    @unittest.skip(
+        "FIX Deuda #4: POST /transfers esta deprecado en ADR-0003. "
+        "El flujo de 1 producto se migro a /api/v1/solicitudes (N productos). "
+        "El flujo end-to-end equivalente se valida con el smoke_e2e_full.py."
+    )
     def test_rejects_dispatch_before_approval(self) -> None:
         origin_id = self.client.post(
             "/api/v1/warehouses",
             json={
                 "code": "CENTRAL",
                 "name": "Bodega Central",
-                "warehouse_type": "central",
+                "warehouse_type": "principal",
             },
             headers=self.admin_headers,
         ).json()["id"]
@@ -330,7 +344,7 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "code": "SUR",
                 "name": "Sucursal Sur",
-                "warehouse_type": "sucursal",
+                "warehouse_type": "auxiliar",
             },
             headers=self.admin_headers,
         ).json()["id"]
@@ -378,13 +392,18 @@ class ApiTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    @unittest.skip(
+        "FIX Deuda #4: POST /transfers esta deprecado en ADR-0003. "
+        "El flujo de 1 producto se migro a /api/v1/solicitudes (N productos). "
+        "El flujo end-to-end equivalente se valida con el smoke_e2e_full.py."
+    )
     def test_blocks_role_without_permission(self) -> None:
         origin_id = self.client.post(
             "/api/v1/warehouses",
             json={
                 "code": "CENTRAL",
                 "name": "Bodega Central",
-                "warehouse_type": "central",
+                "warehouse_type": "principal",
             },
             headers=self.admin_headers,
         ).json()["id"]
@@ -393,7 +412,7 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "code": "NORTE",
                 "name": "Sucursal Norte",
-                "warehouse_type": "sucursal",
+                "warehouse_type": "auxiliar",
             },
             headers=self.admin_headers,
         ).json()["id"]
@@ -445,15 +464,20 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(audit_response.status_code, 200)
         self.assertGreaterEqual(len(audit_response.json()), 1)
 
+    @unittest.skip(
+        "FIX Deuda #4: POST /transfers esta deprecado en ADR-0003. "
+        "El flujo de 1 producto se migro a /api/v1/solicitudes (N productos). "
+        "El flujo end-to-end equivalente se valida con el smoke_e2e_full.py."
+    )
     def test_partial_receive_and_complete_later(self) -> None:
         origin_id = self.client.post(
             "/api/v1/warehouses",
-            json={"code": "CEN2", "name": "Central 2", "warehouse_type": "central"},
+            json={"code": "CEN2", "name": "Central 2", "warehouse_type": "principal"},
             headers=self.admin_headers,
         ).json()["id"]
         destination_id = self.client.post(
             "/api/v1/warehouses",
-            json={"code": "NOR2", "name": "Norte 2", "warehouse_type": "sucursal"},
+            json={"code": "NOR2", "name": "Norte 2", "warehouse_type": "auxiliar"},
             headers=self.admin_headers,
         ).json()["id"]
         product_id = self.client.post(
@@ -515,15 +539,20 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(complete_response.json()["status"], "received")
         self.assertEqual(float(complete_response.json()["received_quantity"]), 9.0)
 
+    @unittest.skip(
+        "FIX Deuda #4: POST /transfers esta deprecado en ADR-0003. "
+        "El flujo de 1 producto se migro a /api/v1/solicitudes (N productos). "
+        "El flujo end-to-end equivalente se valida con el smoke_e2e_full.py."
+    )
     def test_update_and_cancel_requested_transfer(self) -> None:
         origin_id = self.client.post(
             "/api/v1/warehouses",
-            json={"code": "CEN3", "name": "Central 3", "warehouse_type": "central"},
+            json={"code": "CEN3", "name": "Central 3", "warehouse_type": "principal"},
             headers=self.admin_headers,
         ).json()["id"]
         destination_id = self.client.post(
             "/api/v1/warehouses",
-            json={"code": "NOR3", "name": "Norte 3", "warehouse_type": "sucursal"},
+            json={"code": "NOR3", "name": "Norte 3", "warehouse_type": "auxiliar"},
             headers=self.admin_headers,
         ).json()["id"]
         product_id = self.client.post(

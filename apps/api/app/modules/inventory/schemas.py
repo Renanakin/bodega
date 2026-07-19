@@ -72,3 +72,47 @@ class InventorySummaryResponse(BaseModel):
     stock_records: int
     movements: int
     low_stock_alerts: int
+
+
+# --- Fase 8: parametrizacion por bodega x producto ---
+
+class StockParametersUpsert(BaseModel):
+    """Payload para ``PUT /api/v1/inventory/parametros/{producto_id}/{bodega_id}`` (Fase 8).
+
+    Reemplaza la tupla ``(min_quantity, max_quantity)`` de un ``stock_level``
+    especifico. Si la fila no existe, se crea con ``quantity=0`` y los
+    parametros dados.
+
+    Restricciones de negocio (validadas tambien en el service):
+    - ``stock_maximo`` debe ser ``>= stock_minimo``.
+    - ``lead_time_dias`` debe ser ``>= 0``.
+    - ``supplier_preferred_id`` (opcional) debe ser un proveedor activo
+      (la validacion se hace en el service contra el modulo ``proveedores``).
+    """
+
+    stock_minimo: Decimal = Field(
+        ge=Decimal("0"),
+        description="Umbral bajo minimo (alerta).",
+    )
+    stock_maximo: Decimal = Field(
+        ge=Decimal("0"),
+        description="Umbral objetivo (reposicion).",
+    )
+    lead_time_dias: int = Field(ge=0, le=365, default=7)
+    supplier_preferred_id: UUID | None = None
+
+
+class StockParametersResponse(BaseModel):
+    """Vista de los parametros de un (producto, bodega) especifico."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    warehouse_id: UUID
+    warehouse_code: str | None = None
+    product_id: UUID
+    product_sku: str | None = None
+    quantity: Decimal
+    min_quantity: Decimal
+    max_quantity: Decimal | None = None
+    updated_at: datetime

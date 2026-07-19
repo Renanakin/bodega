@@ -1,0 +1,143 @@
+# compose.local.dev.yml
+# Override específico para el perfil DEV con PostgreSQL real (Fase 1, ADR-0001).
+#
+# A diferencia de `compose.local.yml` (que solo agrega ports para inspección),
+# este perfil CONFIGURA la API para usar la BD postgres del compose y corre
+# las migraciones de Alembic al arrancar.
+#
+# Uso:
+#   docker compose \
+#     -f infra/docker/docker-compose.yml \
+#     -f infra/docker/compose.local.dev.yml \
+#     up --build
+#
+# Pre-requisito: las variables de entorno mínimas de `.env.development` deben
+# estar disponibles (compose las carga desde `../../.env.development`).
+#
+# Diferencias clave con compose.local.yml:
+# - DATABASE_URL=postgresql+asyncpg://bodegaje:bodegaje@db:5432/bodegaje
+#   (la API habla con Postgres real, no con SQLite in-memory)
+# - Se elimina la dependencia de SQLite (data/ queda vacía)
+# - Se añade un hook de Alembic (entrypoint) que corre `alembic upgrade head`
+#   ANTES de levantar uvicorn, para que el schema exista al primer request.
+# - Volumes bind-mount del código fuente para hot-reload.
+
+services:
+  # ---------------------------------------------------------------- db
+  db:
+    ports:
+      - "5432:5432"
+
+  # --------------------------------------------------------------- redis
+  redis:
+    ports:
+      - "6379:6379"
+
+  # -------------------------------------------------------------- mailpit
+  mailpit:
+    ports:
+      - "1025:1025"   # SMTP - expuesto para tests de integracion
+      - "8025:8025"   # UI web - http://localhost:8025
+
+  # ---------------------------------------------------------------- api
+  api:
+    # Override del entrypoint: corre migrations primero, luego uvicorn.
+    # `bash -c "..."` para encadenar comandos; usa `&&` para fallar rápido
+    # si alembic falla.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        echo "[entrypoint] corriendo alembic upgrade head..."
+        alembic upgrade head
+        echo "[entrypoint] schema OK; arrancando uvicorn..."
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      # Backend Postgres real (ADR-0001).
+      # Importante: la API debe usar el hostname `db` (nombre del servicio
+      # en compose), NO `localhost` — el port 5432 publicado en `db.ports`
+      # solo es accesible desde el host, no entre containers.
+      - DATABASE_URL=postgresql+asyncpg://bodegaje:bodegaje@db:5432/bodegaje
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - APP_NAME=Bodegaje API (dev+postgres)
+      - APP_VERSION=0.1.0
+      - API_V1_PREFIX=/api/v1
+      - DATABASE_POOL_SIZE=5
+      - DATABASE_MAX_OVERFLOW=10
+      - DATABASE_ECHO=false
+      - JWT_SECRET=dev-secret-not-for-production-32chars-XXXXXX
+      - CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1,http://localhost
+      # SMTP (Fase 7, ADR-0004) - usa el servicio `mailpit` del compose.
+      - SMTP_HOST=mailpit
+      - SMTP_PORT=1025
+      - SMTP_USERNAME=
+      - SMTP_PASSWORD=
+      - SMTP_FROM=noreply@bodegaje.example
+      - SMTP_TLS=false
+      - SMTP_TIMEOUT_SECONDS=30
+      - EMAIL_MAX_ATTEMPTS=3
+      - EMAIL_RETRY_BACKOFF_SECONDS=30,300,1800
+      # URL publica donde la webapp esta expuesta (usado en emails).
+      - PUBLIC_BASE_URL=http://localhost:5173
+    volumes:
+      # Bind-mount del código para hot-reload de uvicorn.
+      - ../../apps/api:/app
+      # SQLite legacy ya no se usa; el directorio queda por compat pero vacío.
+      - sqlite_legacy_data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mailpit:
+        condition: service_started
+
+  # --------------------------------------------------------------- worker
+  worker:
+    # Override: el entrypoint del compose base ya tiene `arq app.worker.WorkerSettings`.
+    # En dev: queremos hot-reload? NO, el worker recarga codigo en cada job.
+    # Mantenemos la misma config que el base + bind-mount del codigo.
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://bodegaje:bodegaje@db:5432/bodegaje
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - JWT_SECRET=dev-secret-not-for-production-32chars-XXXXXX
+      - SMTP_HOST=mailpit
+      - SMTP_PORT=1025
+      - SMTP_FROM=noreply@bodegaje.example
+      - SMTP_TLS=false
+      - EMAIL_MAX_ATTEMPTS=3
+      - EMAIL_RETRY_BACKOFF_SECONDS=30,300,1800
+      - PUBLIC_BASE_URL=http://localhost:5173
+    volumes:
+      - ../../apps/api:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mailpit:
+        condition: service_started
+
+  # ---------------------------------------------------------------- web
+  web:
+    ports:
+      - "5173:80"
+
+  # -------------------------------------------------------------- nginx
+  nginx:
+    ports:
+      - "80:80"
+
+volumes:
+  # Volumen nombrado para que la BD legacy SQLite (si alguien la usa vía
+  # tests) no se pierda entre `docker compose down` y `up`.
+  sqlite_legacy_data:

@@ -1,0 +1,93 @@
+# gitleaks config — Bodegaje (Fase 0)
+# Documentacion: https://github.com/gitleaks/gitleaks/blob/master/config.toml
+#
+# Estrategia: usar las reglas BUILT-IN de gitleaks (cubren AWS, GitHub,
+# Stripe, OpenAI, Slack, Discord, etc.) y solo añadir allowlist
+# para excluir paths que NO son codigo de produccion.
+
+# ------------------------------------------------------------------
+# Allowlist global: archivos y directorios que NUNCA se escanean.
+# Regex se evalua contra la ruta completa del archivo.
+# ------------------------------------------------------------------
+[allowlist]
+description = "Exclude deps, caches, builds y archivos locales"
+paths = [
+  '''node_modules''',
+  '''dist''',
+  '''build''',
+  '''__pycache__''',
+  '''\.pytest_cache''',
+  '''\.mypy_cache''',
+  '''\.ruff_cache''',
+  '''\.venv''',
+  '''venv''',
+  '''\.git''',
+  '''\.omx''',
+  '''\.npm-cache''',
+  '''\.coverage''',
+  '''htmlcov''',
+  '''coverage''',
+  '''\.tox''',
+
+  # Archivos de entorno locales (en .gitignore)
+  '''\.env$''',
+  '''\.env\.development$''',
+  '''\.env\.staging$''',
+  '''\.env\.production$''',
+  '''\.env\.local$''',
+
+  # Logs y dumps
+  '''\.log$''',
+  '''\.sqlite3$''',
+  '''\.db$''',
+  '''\.db-''',
+
+  # Auditoria local de fase 0
+  '''auditoria-fase0''',
+]
+
+# ------------------------------------------------------------------
+# Stopwords: reducen falsos positivos sin permitir secretos reales.
+# Si un match contiene solo caracteres de stopwords, se ignora.
+# ------------------------------------------------------------------
+stopwords = [
+  "example",
+  "placeholder",
+  "PLACEHOLDER",
+  "PLACEHOLDER_",
+  "TEST_SECRET",
+  "TEST_PLACEHOLDER",
+  "test-secret",
+  "test_placeholder",
+  "not-for-production",
+  "dev-secret",
+  "ChangeMe",
+  "CHANGEME",
+  "CHANGE_ME",
+  "presentation_mode",
+  "presentation_tour",
+  "bodegaje_",
+]
+
+# ------------------------------------------------------------------
+# Regla `generic-api-key` DESHABILITADA.
+# Esta regla es notorious ruidosa: matchea cualquier string de 20+ chars
+# con keyword (key/token/secret) en el contexto. Genera muchos falsos
+# positivos en UUIDs (jti), constantes de React, keys de localStorage,
+# fixtures, etc.
+#
+# Truco: la sobreescribimos con una regex que NUNCA matchea (`(?!)`).
+# En gitleaks 8.x, definir una regla con el mismo id sobreescribe
+# la built-in. Ademas, `disabled = true` la apaga.
+#
+# Las otras reglas built-in (AWS, GitHub, Stripe, OpenAI, etc.) son
+# especificas y de alta precision, y son las que realmente importan
+# para detectar secretos reales.
+# ------------------------------------------------------------------
+[[rules]]
+id = "generic-api-key"
+description = "Generic API Key (DESHABILITADA - regex imposible)"
+disabled = true
+regex = '''BODegajeS3cretImposs1ble_OnlyForGitleaksConfigTest_NeverMatch'''
+tags = ["key", "generic"]
+keywords = []

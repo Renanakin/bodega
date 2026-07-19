@@ -3,9 +3,21 @@ CREATE TABLE IF NOT EXISTS warehouses (
     code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     warehouse_type TEXT NOT NULL,
+    parent_warehouse_id TEXT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    -- ADR-0002: el modelo de bodega admite 3 tipos validos.
+    -- 'principal' habla con proveedores, 'auxiliar' se reabastece
+    -- de la principal, 'mecanico_box' es picking local desde un auxiliar.
+    CHECK (warehouse_type IN ('principal', 'auxiliar', 'mecanico_box')),
+    -- ADR-0002: solo los boxes necesitan parent_warehouse_id NOT NULL;
+    -- principal/auxiliar deben tener parent_warehouse_id IS NULL.
+    CHECK (
+        (warehouse_type IN ('principal', 'auxiliar') AND parent_warehouse_id IS NULL)
+        OR (warehouse_type = 'mecanico_box' AND parent_warehouse_id IS NOT NULL)
+    ),
+    FOREIGN KEY (parent_warehouse_id) REFERENCES warehouses(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS products (

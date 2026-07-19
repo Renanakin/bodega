@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
-
 from app.db.session import SQLiteDatabase, get_database
 from app.modules.audit.schemas import AuditLogResponse
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.router import get_current_user
 from app.modules.auth.service import AuthService
+from fastapi import APIRouter, Depends, Query
 
 router = APIRouter()
 
