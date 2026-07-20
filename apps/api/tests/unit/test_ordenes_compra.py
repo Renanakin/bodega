@@ -326,7 +326,7 @@ class OrdenCompraTokenExpiradoTestCase(unittest.IsolatedAsyncioTestCase):
             raise ApprovalTokenExpiredError("Token expirado (simulado)")
 
         with patch(
-            "app.modules.ordenes_compra.service.verify_approval_token",
+            "app.modules.ordenes_compra.actions.aprobar.verify_approval_token",
             side_effect=fake_verify,
         ):
             async with self.session_factory() as s:
