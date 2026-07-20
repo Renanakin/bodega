@@ -24,6 +24,9 @@ class OrdenCompra(Base):
     __table_args__ = (
         CheckConstraint("total_estimado >= 0", name="total_estimado_non_negative"),
         Index("ix_ordenes_estado_created_at", "estado", "created_at"),
+        # FKs frecuentes (Fase 3 indice performance).
+        Index("ix_ordenes_supervisor", "id_supervisor"),
+        Index("ix_ordenes_bodega_principal", "id_bodega_principal"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

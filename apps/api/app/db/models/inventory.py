@@ -32,6 +32,9 @@ class StockLevel(Base):
         CheckConstraint("quantity >= 0", name="quantity_non_negative"),
         CheckConstraint("min_quantity >= 0", name="min_quantity_non_negative"),
         Index("ix_stock_levels_product", "product_id"),
+        # Compuesto (warehouse_id, product_id) para queries del tipo
+        # "stock de un producto en una bodega" (Fase 3 indice performance).
+        Index("ix_stock_levels_warehouse_product", "warehouse_id", "product_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
