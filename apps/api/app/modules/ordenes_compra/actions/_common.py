@@ -74,9 +74,17 @@ async def to_view(
         DetalleOrdenCompra.id_orden_compra == oc.id
     )
     detalles = list((await session.execute(detalles_stmt)).scalars().all())
+    # Cargar todos los productos en una sola query (evita N+1).
+    # Antes: 1 query por linea -> N+1. Ahora: 1 query con WHERE id IN (...).
+    product_ids = [d.id_producto for d in detalles]
+    productos_by_id: dict[uuid.UUID, Product] = {}
+    if product_ids:
+        stmt_productos = select(Product).where(Product.id.in_(product_ids))
+        productos = (await session.execute(stmt_productos)).scalars().all()
+        productos_by_id = {p.id: p for p in productos}
     detalles_view: list[dict] = []
     for d in detalles:
-        p = await session.get(Product, d.id_producto)
+        p = productos_by_id.get(d.id_producto)
         detalles_view.append({
             "id_orden_compra": d.id_orden_compra,
             "id_producto": d.id_producto,

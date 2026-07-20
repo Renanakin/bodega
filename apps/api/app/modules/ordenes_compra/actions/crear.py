@@ -78,12 +78,17 @@ async def create_orden(
     if not lineas:
         raise InvalidOrdenCompraStatusError(current="empty", expected=">=1 linea")
 
-    # Validar productos y calcular total
+    # Validar productos y calcular total en una sola query (evita N+1).
+    # Antes: 1 query por linea -> N+1. Ahora: 1 query con WHERE id IN (...).
+    product_ids = [l["id_producto"] for l in lineas]
+    stmt_productos = select(Product).where(Product.id.in_(product_ids))
+    productos = (await session.execute(stmt_productos)).scalars().all()
+    productos_by_id = {p.id: p for p in productos}
+    missing = [pid for pid in product_ids if pid not in productos_by_id]
+    if missing:
+        raise ProductNotFoundError(str(missing[0]))
     total = Decimal("0")
     for linea in lineas:
-        p = await session.get(Product, linea["id_producto"])
-        if p is None:
-            raise ProductNotFoundError(str(linea["id_producto"]))
         total += linea["cantidad_pedida"] * linea["costo_unitario_pactado"]
 
     # Generar codigo OC-NNNN (secuencial, con prefijo zero-padded)

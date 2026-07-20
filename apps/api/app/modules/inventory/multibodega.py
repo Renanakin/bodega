@@ -120,28 +120,43 @@ class StockMultibodegaService:
 
     async def resumen_bodegas(self) -> list[dict]:
         """Devuelve resumen de stock por bodega (para KPIs del dashboard)."""
-        stmt = (
+        # Traer todas las bodegas y todos los stocks en 2 queries
+        # (no en N+1). Luego agregar en Python.
+        wh_stmt = (
             select(Warehouse)
             .order_by(Warehouse.warehouse_type, Warehouse.code)
         )
-        warehouses = list((await self._session.execute(stmt)).scalars().all())
+        warehouses = list((await self._session.execute(wh_stmt)).scalars().all())
+        if not warehouses:
+            return []
+        # 1 sola query para todo el stock, agrupamos en Python por warehouse_id.
+        wh_ids = [wh.id for wh in warehouses]
+        stock_stmt = select(StockLevel).where(StockLevel.warehouse_id.in_(wh_ids))
+        all_stocks = list((await self._session.execute(stock_stmt)).scalars().all())
+        by_wh: dict = {}
+        for s in all_stocks:
+            bucket = by_wh.setdefault(
+                s.warehouse_id,
+                {"_stocks": [], "_total": Decimal("0"), "_alertas": 0, "_criticos": 0},
+            )
+            bucket["_stocks"].append(s)
+            bucket["_total"] += s.quantity
+            if s.min_quantity > 0 and s.quantity <= s.min_quantity:
+                bucket["_alertas"] += 1
+            if s.quantity <= 0:
+                bucket["_criticos"] += 1
         result = []
         for wh in warehouses:
-            # Stock total y conteo de alertas
-            stock_stmt = select(StockLevel).where(StockLevel.warehouse_id == wh.id)
-            stocks = list((await self._session.execute(stock_stmt)).scalars().all())
-            total = sum((s.quantity for s in stocks), Decimal("0"))
-            alertas = sum(1 for s in stocks if s.min_quantity > 0 and s.quantity <= s.min_quantity)
-            criticos = sum(1 for s in stocks if s.quantity <= 0)
+            bucket = by_wh.get(wh.id, {})
             result.append({
                 "id": wh.id,
                 "code": wh.code,
                 "name": wh.name,
                 "type": wh.warehouse_type,
-                "total_quantity": total,
-                "skus_count": len(stocks),
-                "alertas_count": alertas,
-                "criticos_count": criticos,
+                "total_quantity": bucket.get("_total", Decimal("0")),
+                "skus_count": len(bucket.get("_stocks", [])),
+                "alertas_count": bucket.get("_alertas", 0),
+                "criticos_count": bucket.get("_criticos", 0),
                 "is_active": wh.is_active,
             })
         return result
