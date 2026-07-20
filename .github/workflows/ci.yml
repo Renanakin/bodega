@@ -133,18 +133,7 @@ jobs:
           bandit -r app/ -f json -o /tmp/bandit-report.json || true
           # No fallar el build por warnings de severidad baja; solo HIGH.
           if [ -f /tmp/bandit-report.json ]; then
-            python -c "
-import json, sys
-with open('/tmp/bandit-report.json') as f:
-    data = json.load(f)
-high = [r for r in data.get('results', []) if r.get('issue_severity') == 'HIGH']
-if high:
-    print(f'::error::Bandit found {len(high)} HIGH severity issues')
-    for r in high[:10]:
-        print(f'  - {r[\"test_id\"]} {r[\"test_name\"]}: {r[\"filename\"]}:{r[\"line_number\"]}')
-    sys.exit(1)
-print('Bandit: 0 HIGH severity issues')
-"
+            python infra/scripts/ci/check-bandit.py /tmp/bandit-report.json
           fi
       - name: Verify .env.example has all placeholders
         run: |
