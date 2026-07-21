@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 import { getJson, postJson } from "../lib/api";
 
 const demoWarehouses = [
-  { code: "CENTRAL", name: "Bodega Central", warehouse_type: "central" },
-  { code: "NORTE", name: "Sucursal Norte", warehouse_type: "sucursal" },
+  { code: "CENTRAL", name: "Bodega Central", warehouse_type: "principal" },
+  { code: "NORTE", name: "Sucursal Norte", warehouse_type: "auxiliar" },
 ];
 
 const demoProducts = [
@@ -121,55 +121,10 @@ export function useReviewMvpData() {
           notes: "Regularizacion de conteo",
         }),
       ]);
-
-      await postJson("/transfers", {
-        from_warehouse_id: byCode.CENTRAL.id,
-        to_warehouse_id: byCode.NORTE.id,
-        product_id: bySku["FIL-004"].id,
-        quantity: 4,
-        priority: "Alta",
-        notes: "Transferencia demo solicitada",
-      });
-
-      const approved = await postJson("/transfers", {
-        from_warehouse_id: byCode.CENTRAL.id,
-        to_warehouse_id: byCode.NORTE.id,
-        product_id: bySku["ACE-001"].id,
-        quantity: 6,
-        priority: "Media",
-        notes: "Transferencia demo aprobada",
-      });
-      await postJson(`/transfers/${approved.id}/approve`);
-
-      const dispatched = await postJson("/transfers", {
-        from_warehouse_id: byCode.CENTRAL.id,
-        to_warehouse_id: byCode.NORTE.id,
-        product_id: bySku["KIT-010"].id,
-        quantity: 3,
-        priority: "Alta",
-        notes: "Transferencia demo despachada",
-      });
-      await postJson(`/transfers/${dispatched.id}/approve`);
-      await postJson(`/transfers/${dispatched.id}/dispatch`, {
-        notes: "Despacho demo en transito",
-      });
-
-      const received = await postJson("/transfers", {
-        from_warehouse_id: byCode.CENTRAL.id,
-        to_warehouse_id: byCode.NORTE.id,
-        product_id: bySku["FIL-004"].id,
-        quantity: 2,
-        priority: "Baja",
-        notes: "Transferencia demo recibida",
-      });
-      await postJson(`/transfers/${received.id}/approve`);
-      await postJson(`/transfers/${received.id}/dispatch`, {
-        notes: "Despacho demo completo",
-      });
-      await postJson(`/transfers/${received.id}/receive`, {
-        quantity: 2,
-        notes: "Recepcion demo completa",
-      });
+      // NOTA: la demo NO crea transfers/solicitudes automaticamente.
+      // Las transferencias (1 producto) fueron reemplazadas por solicitudes_recarga
+      // (N productos) segun ADR-0003. Probalas manualmente desde la pantalla
+      // "Solicitudes" para ver el flujo end-to-end (crear -> aprobar -> despachar -> recibir).
     }
 
     await refresh();

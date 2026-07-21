@@ -16,16 +16,28 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import EmailStr, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Paths base del proyecto
-# config.py vive en apps/api/app/core/. Por lo tanto:
-# parents[4] = <repo>           (REPO_ROOT)
-API_ROOT = Path(__file__).resolve().parents[2]
-REPO_ROOT = Path(__file__).resolve().parents[4]
+# config.py vive en apps/api/app/core/ en el repo local (4 niveles al REPO_ROOT).
+# En Docker (imagen) vive en /app/app/core/ (3 niveles al /app root). Hacemos
+# deteccion robusta subiendo hasta que REPO_ROOT no contenga a API_ROOT.
+_API_CORE = Path(__file__).resolve().parent
+API_ROOT = _API_CORE.parent.parent  # apps/api/
+# En repo local: 4 niveles. En Docker: 3 niveles. Probamos 4 y si
+# nos pasamos, fallback a 3.
+try:
+    _candidate_root = API_ROOT.parent.parent
+    # Si subimos a un dir que no contiene API_ROOT, es el REPO_ROOT correcto.
+    if API_ROOT.parent.name == "apps" and _candidate_root.name != "apps":
+        REPO_ROOT = _candidate_root
+    else:
+        REPO_ROOT = API_ROOT.parent  # Docker /app
+except IndexError:
+    REPO_ROOT = API_ROOT.parent
 
 # Entornos permitidos (R2)
 Environment = Literal["development", "staging", "production"]
@@ -394,12 +406,52 @@ class Settings(BaseSettings):
         return self
 
     model_config = SettingsConfigDict(
-        # El archivo .env se selecciona según ENVIRONMENT (R2)
-        env_file=None,  # se setea en __init__ vía select_env_file
+        # El archivo .env se selecciona dinamicamente en ``_select_env_file_for_env``
+        # (validator ``before``) segun el ENVIRONMENT de CADA instancia.
+        # Antes se seteaba al importar el modulo, lo cual contaminaba los tests
+        # con el .env del environment de la shell del test runner.
+        env_file=None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _select_env_file_for_env(cls, values: dict[str, Any]) -> dict[str, Any]:
+        """Selecciona el .env correcto segun ENVIRONMENT (Fase 10 — Issue 2).
+
+        Se ejecuta antes de la validacion de campos, lo cual permite que
+        cada instancia de ``Settings`` (ej. en tests con monkeypatch)
+        use el .env del ENVIRONMENT que se setea en el momento, no
+        el que estaba al importar el modulo.
+
+        Si el caller pasa ``_env_file=None`` explicitamente (tests de
+        hardening), respeta eso y NO carga ningun .env.
+        """
+        # Si el caller ya especifico _env_file (incluso None), respetar.
+        if "_env_file" in values:
+            return values
+        # Determinar el env de forma robusta: argumento explicito > env var > default.
+        env: str = (
+            values.get("environment")
+            or os.environ.get("ENVIRONMENT")
+            or "development"
+        )
+        env = str(env).lower()
+        if env not in ("development", "staging", "production"):
+            env = "development"
+        # Forzar que select_env_file() lea con el ENVIRONMENT ya seteado.
+        prev = os.environ.get("ENVIRONMENT")
+        os.environ["ENVIRONMENT"] = env
+        try:
+            cls.model_config["env_file"] = select_env_file()  # type: ignore[assignment]
+        finally:
+            if prev is None:
+                os.environ.pop("ENVIRONMENT", None)
+            else:
+                os.environ["ENVIRONMENT"] = prev
+        return values
 
     @property
     def is_production(self) -> bool:
@@ -460,8 +512,11 @@ def select_env_file() -> str | None:
     return None
 
 
-# Inyectar el env_file correcto antes de instanciar
+# Inyectar el env_file inicial al importar (sirve para los lugares donde se
+# instancia Settings sin pasar por el validator ``before``, ej. fuera de tests).
 Settings.model_config["env_file"] = select_env_file()  # type: ignore[assignment]
+# En tests, el validator ``before`` (``_select_env_file_for_env``) sobreescribe
+# este valor en cada instancia con el .env del ENVIRONMENT vigente al momento.
 
 
 @lru_cache(maxsize=1)

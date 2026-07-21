@@ -102,24 +102,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         environment=get_settings().environment,
         version=get_settings().app_version,
     )
-    # Si el backend activo es async (no sqlite_legacy), crear las tablas
-    # en el engine async al startup. Esto unifica el path de BD: los
-    # routers async y sync legacy apuntaran a archivos DIFERENTES, pero
-    # los routers migrados a async (auth, warehouses, products, etc.)
-    # comparten la misma BD con el resto del flujo async (solicitudes).
-    # Ver Deuda #1 (Prioridad 1) en docs/HANDOFF_SESION_2026-07-15.md.
-    if getattr(app.state, "async_engine_initialized", False):
+    # Si el backend activo es sqlite_legacy (sync SQLite), inicializar el
+    # schema via create_all (no usamos Alembic para este path porque las
+    # migraciones son .sql de SQLite, no Alembic). En Postgres/SQLite async
+    # dejamos que Alembic sea el unico source of truth del schema (corre en
+    # el entrypoint del compose antes de uvicorn).
+    if (
+        getattr(app.state, "async_engine_initialized", False)
+        and getattr(app.state, "db", None) is not None
+    ):
         from app.db.session import init_async_schema  # noqa: PLC0415
 
-        try:
-            await init_async_schema()
-        except Exception as exc:  # noqa: BLE001
-            log.error(
-                "db.async_schema_init_failed",
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
-            raise
+        await init_async_schema()
     yield
     log.info("app.shutdown")
 

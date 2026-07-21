@@ -7,7 +7,7 @@ import { getErrorMessage, postJson } from "../lib/api";
 const initialValues = {
   code: "",
   name: "",
-  warehouse_type: "sucursal",
+  warehouse_type: "principal",
 };
 
 function validate(values) {
@@ -72,9 +72,9 @@ export function WarehouseForm({ onSuccess }) {
             value={values.warehouse_type}
             onChange={(event) => setValue("warehouse_type", event.target.value)}
           >
-            <option value="central">Central</option>
-            <option value="sucursal">Sucursal</option>
-            <option value="transito">Transito</option>
+            <option value="principal">Principal</option>
+            <option value="auxiliar">Auxiliar</option>
+            <option value="mecanico_box">Caja de mecanico</option>
           </select>
         </FormField>
       </FormGrid>

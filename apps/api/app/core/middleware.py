@@ -210,6 +210,45 @@ async def exception_handler_with_correlation_id(_request: Request, _exc: Excepti
     )
 
 
+async def sqlite_integrity_error_handler(_request: Request, exc: Exception) -> Response:
+    """Handler especifico para ``sqlite3.IntegrityError``.
+
+    Convierte el error 500 en un 422 (Unprocessable Entity) con el mensaje
+    del constraint violated, para que la UI muestre algo util en vez de
+    "Internal Server Error".
+
+    Aplica a CHECK constraints (ej. ``warehouse_type`` invalido, falta
+    ``parent_warehouse_id`` para ``mecanico_box``) y UNIQUE constraints
+    (ej. ``code`` duplicado).
+    """
+    import sqlite3
+
+    from fastapi.responses import JSONResponse
+
+    correlation_id = get_request_id()
+    headers: dict[str, str] = {}
+    if correlation_id:
+        headers["X-Correlation-ID"] = correlation_id
+    clear_request_context()
+
+    raw = str(exc) if isinstance(exc, sqlite3.IntegrityError) else str(exc)
+    # ``sqlite3.IntegrityError`` con check_same_thread=False a veces trae
+    # un mensaje generico tipo "CHECK constraint failed: ...". Devolvemos
+    # el texto tal cual para que la UI lo muestre.
+    if "CHECK constraint failed" in raw:
+        detail_code = "check_constraint_violated"
+    elif "UNIQUE constraint failed" in raw:
+        detail_code = "unique_constraint_violated"
+    else:
+        detail_code = "integrity_error"
+
+    return JSONResponse(
+        status_code=422,
+        content={"detail": {"code": detail_code, "message": raw}},
+        headers=headers,
+    )
+
+
 def install_correlation_handlers(app: ASGIApp) -> None:
     """Registra el middleware y el exception handler en una app FastAPI.
 
@@ -229,6 +268,11 @@ def install_correlation_handlers(app: ASGIApp) -> None:
     if hasattr(app, "add_middleware"):
         app.add_middleware(CorrelationIdMiddleware)
     if hasattr(app, "add_exception_handler"):
+        # El handler especifico se registra ANTES del catch-all para que
+        # FastAPI matchee por especificidad (subclase de Exception).
+        import sqlite3
+
+        app.add_exception_handler(sqlite3.IntegrityError, sqlite_integrity_error_handler)
         app.add_exception_handler(Exception, exception_handler_with_correlation_id)
 
 

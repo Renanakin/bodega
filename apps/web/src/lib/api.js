@@ -37,11 +37,21 @@ async function request(path, options = {}) {
     : await response.text();
 
   if (!response.ok) {
-    const message =
-      payload?.detail?.message ||
-      payload?.detail?.code ||
-      payload?.detail ||
-      `Request failed: ${response.status}`;
+    // Normalizar siempre a string para que React no renderice "[object Object]"
+    // cuando el backend devuelve arrays/objetos en `detail` (ej. 422 de FastAPI).
+    let message;
+    if (typeof payload?.detail === "string") {
+      message = payload.detail;
+    } else if (Array.isArray(payload?.detail) && payload.detail[0]?.msg) {
+      // FastAPI 422: [{type, loc, msg, ...}, ...]
+      message = payload.detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+    } else if (typeof payload?.detail?.message === "string") {
+      message = payload.detail.message;
+    } else if (typeof payload?.detail?.code === "string") {
+      message = payload.detail.code;
+    } else {
+      message = `Request failed: ${response.status}`;
+    }
     throw new ApiError(message, response.status, payload);
   }
 

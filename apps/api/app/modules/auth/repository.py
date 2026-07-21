@@ -93,9 +93,47 @@ class AuthRepository:
         )
         return log
 
-    def list_audit_logs(self, limit: int = 50) -> list[AuditLogRecord]:
+    def list_audit_logs(
+        self,
+        limit: int = 50,
+        *,
+        entity_type: str | None = None,
+        action: str | None = None,
+        user_id: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[AuditLogRecord]:
+        """Lista audit logs con filtros opcionales.
+
+        Filtros combinables (AND):
+        - ``entity_type``: ej. ``"warehouse"``, ``"product"``
+        - ``action``: ej. ``"create"``, ``"approve"``, ``"login"``
+        - ``user_id``: UUID del usuario que realizo la accion
+        - ``date_from`` / ``date_to``: rango de fechas ISO 8601 (created_at)
+
+        ``limit`` acota el resultado DESPUES de aplicar filtros.
+        """
+        clauses: list[str] = []
+        params: list = []
+        if entity_type is not None:
+            clauses.append("entity_type = ?")
+            params.append(entity_type)
+        if action is not None:
+            clauses.append("action = ?")
+            params.append(action)
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if date_from is not None:
+            clauses.append("created_at >= ?")
+            params.append(date_from)
+        if date_to is not None:
+            clauses.append("created_at <= ?")
+            params.append(date_to)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
         rows = self._db.query_all(
-            "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?",
-            (limit,),
+            f"SELECT * FROM audit_logs{where} ORDER BY created_at DESC LIMIT ?",  # noqa: S608
+            tuple(params),
         )
         return [_to_audit_log(row) for row in rows]

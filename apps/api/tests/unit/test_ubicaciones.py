@@ -48,11 +48,11 @@ def _create_user(db, role: str = "admin") -> None:
     )
 
 
-def _create_warehouse(client: TestClient, headers: dict[str, str]) -> str:
+def _create_warehouse(client: TestClient, headers: dict[str, str], name_suffix: str = "") -> str:
     code = f"W-{uuid4().hex[:6].upper()}"
     resp = client.post(
         "/api/v1/warehouses",
-        json={"code": code, "name": "Test WH", "warehouse_type": "principal"},
+        json={"code": code, "name": f"Test WH{name_suffix}", "warehouse_type": "principal"},
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
@@ -65,7 +65,7 @@ class UbicacionesTestCase(unittest.TestCase):
         self.client = TestClient(self.app)
         _create_user(self.app.state.db, "admin")
         self.headers = _auth_headers(self.client)
-        self.bodega_id = _create_warehouse(self.client, self.headers)
+        self.bodega_id = _create_warehouse(self.client, self.headers, name_suffix="-A")
 
     def tearDown(self) -> None:
         self.app.state.db.close()
@@ -108,7 +108,7 @@ class UbicacionesTestCase(unittest.TestCase):
         self.assertEqual(second.json()["detail"]["code"], "duplicate_ubicacion")
 
     def test_same_slot_different_bodega_is_ok(self) -> None:
-        other_bodega = _create_warehouse(self.client, self.headers)
+        other_bodega = _create_warehouse(self.client, self.headers, name_suffix="-B")
         payload = {"pasillo": 5, "estanteria": 5, "altura": 1}
 
         r1 = self.client.post(

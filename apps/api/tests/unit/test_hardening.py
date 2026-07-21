@@ -156,46 +156,63 @@ class TestSettingsHardening:
             Settings()
         assert "secret_key" in str(exc_info.value).lower()
 
-    def test_settings_secret_key_optional_en_dev(self, env_development: None) -> None:
-        """En dev, SECRET_KEY=None esta permitido (fallback a JWT_SECRET)."""
-        from app.core.config import get_settings
+    def test_settings_secret_key_optional_en_dev(self, isolated_settings: None) -> None:
+        """En dev, SECRET_KEY=None esta permitido (fallback a JWT_SECRET).
 
-        settings = get_settings()
+        Usa el fixture ``isolated_settings`` que borra env vars y deshabilita
+        el .env del repo, para verificar el comportamiento puro del validator.
+        """
+        import os
+
+        os.environ["ENVIRONMENT"] = "development"
+        os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+        os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+        os.environ["JWT_SECRET"] = "x" * 32
+        os.environ.pop("SECRET_KEY", None)
+
+        from app.core.config import Settings, reset_settings_cache
+
+        reset_settings_cache()
+        settings = Settings(_env_file=None)
         assert settings.secret_key is None
 
     def test_settings_secret_key_requerido_en_produccion(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, isolated_settings: None
     ) -> None:
         """En produccion, SECRET_KEY=None es RECHAZADO (defense in depth)."""
-        monkeypatch.setenv("ENVIRONMENT", "production")
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/d")
-        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-        monkeypatch.setenv("JWT_SECRET", "x" * 32)
-        monkeypatch.setenv("SMTP_USE_TLS", "true")
-        # NO seteamos SECRET_KEY -> debe fallar.
+        import os
+
+        os.environ["ENVIRONMENT"] = "production"
+        os.environ["DATABASE_URL"] = "postgresql+asyncpg://u:p@localhost:5432/d"
+        os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+        os.environ["JWT_SECRET"] = "x" * 32
+        os.environ["SMTP_USE_TLS"] = "true"
+        os.environ.pop("SECRET_KEY", None)
 
         from app.core.config import Settings, reset_settings_cache
 
         reset_settings_cache()
         with pytest.raises(ValidationError) as exc_info:
-            Settings()
+            Settings(_env_file=None)
         assert "secret_key" in str(exc_info.value).lower()
         assert "produccion" in str(exc_info.value).lower()
 
-    def test_settings_tls_en_produccion_smtp(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_settings_tls_en_produccion_smtp(self, isolated_settings: None) -> None:
         """En produccion, SMTP_USE_TLS=false es RECHAZADO (ADR-0004)."""
-        monkeypatch.setenv("ENVIRONMENT", "production")
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/d")
-        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-        monkeypatch.setenv("JWT_SECRET", "x" * 32)
-        monkeypatch.setenv("SECRET_KEY", "y" * 32)
-        # SMTP_USE_TLS queda en default (false) -> debe fallar.
+        import os
+
+        os.environ["ENVIRONMENT"] = "production"
+        os.environ["DATABASE_URL"] = "postgresql+asyncpg://u:p@localhost:5432/d"
+        os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+        os.environ["JWT_SECRET"] = "x" * 32
+        os.environ["SECRET_KEY"] = "y" * 32
+        # SMTP_USE_TLS no se setea -> default False -> debe fallar.
 
         from app.core.config import Settings, reset_settings_cache
 
         reset_settings_cache()
         with pytest.raises(ValidationError) as exc_info:
-            Settings()
+            Settings(_env_file=None)
         assert "smtp" in str(exc_info.value).lower()
 
     def test_settings_redact_passwords_en_logs(self, env_development: None) -> None:

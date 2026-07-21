@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS warehouses (
     id TEXT PRIMARY KEY,
     code TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
     warehouse_type TEXT NOT NULL,
     parent_warehouse_id TEXT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS warehouses (
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     sku TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
     unit TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,

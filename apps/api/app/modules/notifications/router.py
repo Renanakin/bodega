@@ -1,4 +1,15 @@
-"""Router para inspeccionar email_outbox (debug/admin)."""
+"""Router LEGACY para inspeccionar email_outbox (debug/admin).
+
+.. deprecated::
+    Este modulo (``notifications/`` en ingles) es LEGACY de Fase 7 (SMTP outbox).
+    El modulo vivo para notificaciones in-app del operador es
+    ``app/modules/notificaciones/router.py`` (en espanol, Fase 8).
+
+    Ambos se montan bajo ``/api/v1/notificaciones`` pero con paths distintos
+    (no chocan). Mantener ambos por compatibilidad 6 meses segun
+    el patron de deprecation gradual del proyecto (ver ``transfers/``).
+    Una vez cumplido el plazo, eliminar este router.
+"""
 
 from __future__ import annotations
 

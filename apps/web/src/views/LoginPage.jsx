@@ -65,10 +65,10 @@ export function LoginPage() {
         </form>
         {import.meta.env.DEV && (
           <div className="plain-list">
-            <div>`admin` / `demo123`</div>
-            <div>`supervisor` / `demo123`</div>
-            <div>`origen` / `demo123`</div>
-            <div>`destino` / `demo123`</div>
+            <div><code>admin</code> / <code>admin12345</code></div>
+            <div><code>supervisor</code> / <code>admin12345</code></div>
+            <div><code>origen</code> / <code>admin12345</code></div>
+            <div><code>destino</code> / <code>admin12345</code></div>
           </div>
         )}
       </section>

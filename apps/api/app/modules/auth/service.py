@@ -58,8 +58,24 @@ class AuthService:
         if token:
             self._repository.delete_session(token)
 
-    def list_audit_logs(self, limit: int = 50):
-        return self._repository.list_audit_logs(limit)
+    def list_audit_logs(
+        self,
+        limit: int = 50,
+        *,
+        entity_type: str | None = None,
+        action: str | None = None,
+        user_id: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ):
+        return self._repository.list_audit_logs(
+            limit,
+            entity_type=entity_type,
+            action=action,
+            user_id=user_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
 
     def audit(
         self,

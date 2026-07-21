@@ -35,6 +35,32 @@ def env_development(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
+def isolated_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Aisla los tests de hardening del .env del repo.
+
+    Borra las env vars que se usan en ``Settings`` para que Pydantic NO las
+    herede del proceso. Los tests que usan este fixture DEBEN instanciar
+    ``Settings(_env_file=None)`` para evitar que Pydantic lea el .env del
+    repo (Fase 10 — Issue 1).
+    """
+    from app.core.config import reset_settings_cache
+
+    for key in (
+        "SECRET_KEY",
+        "JWT_SECRET",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_FROM",
+        "SMTP_USE_TLS",
+        "ENVIRONMENT",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    reset_settings_cache()
+
+
+@pytest.fixture
 def caplog_with_structlog(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     """Fixture que captura tanto logs de stdlib logging como de structlog."""
     import logging

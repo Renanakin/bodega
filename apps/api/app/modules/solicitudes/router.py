@@ -161,6 +161,14 @@ async def list_solicitudes(
 
 
 # =========================================================== DISTRIBUCION (spec §4.1)
+# NOTA: las definiciones se movieron mas arriba (antes de /{solicitud_id})
+# para que FastAPI las matchee antes que la ruta dinamica UUID.
+
+
+# =========================================================== DISTRIBUCION (spec §4.1)
+# IMPORTANTE: estas rutas estaticas deben declararse ANTES de /{solicitud_id}
+# porque FastAPI matchea en orden y 'bajo-minimo' / 'distribucion/multibodega'
+# sino caen en el parseador UUID y devuelven 422.
 
 
 @router.get(
@@ -183,6 +191,85 @@ async def get_distribucion_multibodega(
     if result is None:
         raise ProductNotFoundError(f"sku={sku}")
     return result
+
+
+@router.get(
+    "/bajo-minimo",
+    response_model=list[StockBajoMinimoResponse],
+)
+async def get_productos_bajo_minimo(
+    bodega_id: uuid.UUID | None = Query(
+        default=None,
+        description=(
+            "Si se pasa, filtra a una sola bodega. Si no, lista todas "
+            "las bodegas auxiliares con SKUs bajo minimo."
+        ),
+    ),
+    _=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[StockBajoMinimoResponse]:
+    """Lista SKUs bajo minimo de stock, opcionalmente filtrado por bodega.
+
+    Consumido por la UI ``ReplenishmentPage`` para mostrar al bodeguero
+    que productos necesitan reponerse y cuanto. La cantidad sugerida
+    sigue la misma regla que el ``ReplenishmentEvaluator``.
+    """
+    # 1. Determinar bodegas a evaluar (auxiliares activas, opcionalmente 1)
+    wh_stmt = select(Warehouse).where(
+        Warehouse.warehouse_type == "auxiliar",
+        Warehouse.is_active.is_(True),
+    )
+    if bodega_id is not None:
+        wh_stmt = wh_stmt.where(Warehouse.id == bodega_id)
+    whs = list((await session.execute(wh_stmt)).scalars().all())
+    if not whs:
+        return []
+
+    # 2. Cargar todos los stock_levels bajo minimo de esas bodegas en 1 query
+    wh_ids = [wh.id for wh in whs]
+    stock_stmt = select(StockLevel).where(
+        StockLevel.warehouse_id.in_(wh_ids),
+        StockLevel.min_quantity > 0,
+        StockLevel.quantity <= StockLevel.min_quantity,
+    )
+    stocks = list((await session.execute(stock_stmt)).scalars().all())
+    if not stocks:
+        return []
+
+    # 3. Cachear bodegas y productos
+    bodegas_by_id: dict[uuid.UUID, Warehouse] = {wh.id: wh for wh in whs}
+    product_ids = {s.product_id for s in stocks}
+    prod_stmt = select(Product).where(Product.id.in_(product_ids))
+    productos: dict[uuid.UUID, Product] = {
+        p.id: p for p in (await session.execute(prod_stmt)).scalars().all()
+    }
+
+    # 4. Armar la respuesta
+    items: list[StockBajoMinimoResponse] = []
+    for stock in stocks:
+        prod = productos.get(stock.product_id)
+        if prod is None or not prod.is_active:
+            continue
+        wh = bodegas_by_id.get(stock.warehouse_id)
+        if wh is None:
+            continue
+        items.append(
+            StockBajoMinimoResponse(
+                bodega_id=wh.id,
+                bodega_codigo=wh.code,
+                bodega_nombre=wh.name,
+                producto_id=prod.id,
+                producto_sku=prod.sku,
+                producto_nombre=prod.name,
+                stock_actual=stock.quantity,
+                stock_minimo=stock.min_quantity,
+                stock_maximo=stock.max_quantity,
+                cantidad_sugerida=_calcular_cantidad(stock),
+                # Mapeo explicito: 'alta' / 'normal' → "alta"/"normal" (no 'urgente' en v1).
+                prioridad=("alta" if _calcular_prioridad(stock) == "alta" else "normal"),
+            )
+        )
+    return items
 
 
 # ===================================================================== GET ONE
@@ -350,82 +437,3 @@ async def auto_generar_solicitudes(
         dry_run=report.dry_run,
         timestamp=datetime.now(UTC),
     )
-
-
-@router.get(
-    "/bajo-minimo",
-    response_model=list[StockBajoMinimoResponse],
-)
-async def get_productos_bajo_minimo(
-    bodega_id: uuid.UUID | None = Query(
-        default=None,
-        description=(
-            "Si se pasa, filtra a una sola bodega. Si no, lista todas "
-            "las bodegas auxiliares con SKUs bajo minimo."
-        ),
-    ),
-    _=Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> list[StockBajoMinimoResponse]:
-    """Lista SKUs bajo minimo de stock, opcionalmente filtrado por bodega.
-
-    Consumido por la UI ``ReplenishmentPage`` para mostrar al bodeguero
-    que productos necesitan reponerse y cuanto. La cantidad sugerida
-    sigue la misma regla que el ReplenishmentEvaluator.
-    """
-    # 1. Determinar bodegas a evaluar (auxiliares activas, opcionalmente 1)
-    wh_stmt = select(Warehouse).where(
-        Warehouse.warehouse_type == "auxiliar",
-        Warehouse.is_active.is_(True),
-    )
-    if bodega_id is not None:
-        wh_stmt = wh_stmt.where(Warehouse.id == bodega_id)
-    whs = list((await session.execute(wh_stmt)).scalars().all())
-    if not whs:
-        return []
-
-    # 2. Cargar todos los stock_levels bajo minimo de esas bodegas en 1 query
-    wh_ids = [wh.id for wh in whs]
-    stock_stmt = select(StockLevel).where(
-        StockLevel.warehouse_id.in_(wh_ids),
-        StockLevel.min_quantity > 0,
-        StockLevel.quantity <= StockLevel.min_quantity,
-    )
-    stocks = list((await session.execute(stock_stmt)).scalars().all())
-    if not stocks:
-        return []
-
-    # 3. Cachear bodegas y productos
-    bodegas_by_id: dict[uuid.UUID, Warehouse] = {wh.id: wh for wh in whs}
-    product_ids = {s.product_id for s in stocks}
-    prod_stmt = select(Product).where(Product.id.in_(product_ids))
-    productos: dict[uuid.UUID, Product] = {
-        p.id: p for p in (await session.execute(prod_stmt)).scalars().all()
-    }
-
-    # 4. Armar la respuesta
-    items: list[StockBajoMinimoResponse] = []
-    for stock in stocks:
-        prod = productos.get(stock.product_id)
-        if prod is None or not prod.is_active:
-            continue
-        wh = bodegas_by_id.get(stock.warehouse_id)
-        if wh is None:
-            continue
-        items.append(
-            StockBajoMinimoResponse(
-                bodega_id=wh.id,
-                bodega_codigo=wh.code,
-                bodega_nombre=wh.name,
-                producto_id=prod.id,
-                producto_sku=prod.sku,
-                producto_nombre=prod.name,
-                stock_actual=stock.quantity,
-                stock_minimo=stock.min_quantity,
-                stock_maximo=stock.max_quantity,
-                cantidad_sugerida=_calcular_cantidad(stock),
-                # Mapeo explicito: 'alta' / 'normal' → "alta"/"normal" (no 'urgente' en v1).
-                prioridad=("alta" if _calcular_prioridad(stock) == "alta" else "normal"),
-            )
-        )
-    return items

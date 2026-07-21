@@ -103,16 +103,25 @@ class SQLiteDatabase:
                 raise
 
     def execute(self, sql: str, params: tuple | list = ()) -> sqlite3.Cursor:  # type: ignore[no-untyped-def]
-        return self._connection.execute(sql, params)
+        # CRITICO: serializar TODOS los accesos a la conexion con el RLock.
+        # Sin esto, uvicorn manda multiples requests en paralelo y sqlite3
+        # stdlib (aun con check_same_thread=False) lanza
+        # "InterfaceError: bad parameter or other API misuse" cuando
+        # dos threads ejecutan a la vez sobre la misma conexion.
+        with self._lock:
+            return self._connection.execute(sql, params)
 
     def execute_script(self, sql: str) -> None:  # type: ignore[no-untyped-def]
-        self._connection.executescript(sql)
+        with self._lock:
+            self._connection.executescript(sql)
 
     def query_one(self, sql: str, params: tuple | list = ()) -> sqlite3.Row | None:  # type: ignore[no-untyped-def]
-        return self.execute(sql, params).fetchone()
+        with self._lock:
+            return self.execute(sql, params).fetchone()
 
     def query_all(self, sql: str, params: tuple | list = ()) -> list[sqlite3.Row]:  # type: ignore[no-untyped-def]
-        return self.execute(sql, params).fetchall()
+        with self._lock:
+            return self.execute(sql, params).fetchall()
 
     def close(self) -> None:
         self._connection.close()
