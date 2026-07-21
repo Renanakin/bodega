@@ -37,6 +37,9 @@ Convencion de Arq 0.26+:
 
 from __future__ import annotations
 
+from arq.connections import RedisSettings, create_pool
+from arq.cron import cron
+
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.db.session import get_session_factory
@@ -45,8 +48,6 @@ from app.modules.observability.metrics import (
     update_solicitudes_gauge_from_db,
 )
 from app.modules.solicitudes.replenishment import ReplenishmentEvaluator
-from arq.connections import RedisSettings, create_pool
-from arq.cron import cron
 
 # Configurar logging estructurado (R8). En el entry point de Arq el
 # logging debe inicializarse antes de instanciar el worker para que los

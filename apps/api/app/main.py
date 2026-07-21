@@ -22,6 +22,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.errors import DomainError, domain_error_handler
@@ -30,8 +33,6 @@ from app.core.middleware import (
     install_correlation_handlers,
 )
 from app.db.session import create_database
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 # Configurar logging ANTES de instanciar la app (R8)
 configure_logging()
