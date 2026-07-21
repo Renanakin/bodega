@@ -193,9 +193,9 @@ class TestEnvioSmtpReal:
                 data = r.json()
                 messages = data.get("messages", [])
                 # Buscar el mensaje por subject.
-                assert any(msg.get("Subject") == subject for msg in messages), (
-                    f"Mailpit no recibio el email con subject {subject!r}"
-                )
+                assert any(
+                    msg.get("Subject") == subject for msg in messages
+                ), f"Mailpit no recibio el email con subject {subject!r}"
             else:
                 # Si la API no responde, al menos verificamos que el envio
                 # no levanto excepcion. El SMTP probe ya valido el server.
@@ -247,9 +247,9 @@ class TestEnvioSmtpReal:
             if r.status_code == 200:
                 data = r.json()
                 messages = data.get("messages", [])
-                assert any(msg.get("Subject") == ctx["subject"] for msg in messages), (
-                    "Mailpit no recibio el email renderizado"
-                )
+                assert any(
+                    msg.get("Subject") == ctx["subject"] for msg in messages
+                ), "Mailpit no recibio el email renderizado"
 
     @pytest.mark.asyncio
     async def test_token_aprobacion_esta_en_el_body_html(self, mailpit_api_required: None) -> None:

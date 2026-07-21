@@ -248,9 +248,9 @@ class TestConcurrentMovementsSqlite:
                 )
             )
             final = result.scalar_one()
-            assert final.quantity == Decimal("50"), (
-                f"Con asyncio.Lock, stock final debe ser 50, no {final.quantity}"
-            )
+            assert final.quantity == Decimal(
+                "50"
+            ), f"Con asyncio.Lock, stock final debe ser 50, no {final.quantity}"
 
     @pytest.mark.asyncio
     async def test_log_contains_required_fields(

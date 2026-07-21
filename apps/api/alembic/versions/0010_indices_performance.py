@@ -90,16 +90,17 @@ def upgrade() -> None:
     # parte de la definicion de la tabla. Intentar crear un indice con
     # el mismo nombre aqui produce DuplicateTableError en Postgres.
 
-    # audit_log: queries por usuario y por entidad.
+    # audit_logs: queries por usuario y por entidad. La tabla es
+    # "audit_logs" (plural) segun 0001_initial_mvp.py.
     op.create_index(
-        "ix_audit_log_user_created",
-        "audit_log",
+        "ix_audit_logs_user_created",
+        "audit_logs",
         ["user_id", "created_at"],
         unique=False,
     )
     op.create_index(
-        "ix_audit_log_entity",
-        "audit_log",
+        "ix_audit_logs_entity",
+        "audit_logs",
         ["entity_type", "entity_id"],
         unique=False,
     )
@@ -115,8 +116,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_notifications_user_read", table_name="notificaciones")
-    op.drop_index("ix_audit_log_entity", table_name="audit_log")
-    op.drop_index("ix_audit_log_user_created", table_name="audit_log")
+    op.drop_index("ix_audit_logs_entity", table_name="audit_logs")
+    op.drop_index("ix_audit_logs_user_created", table_name="audit_logs")
     # NOTA: uq_ordenes_codigo no se dropea porque no se creo en esta
     # migracion (ver comentario en upgrade).
     op.drop_index("ix_ordenes_bodega_principal", table_name="ordenes_compra")

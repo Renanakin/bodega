@@ -95,9 +95,9 @@ class TestPasswordHashingHardening:
         from app.core.config import get_settings
 
         settings = get_settings()
-        assert settings.password_hash_iterations == 600_000, (
-            f"Default debe ser 600_000 (OWASP 2023), recibido: {settings.password_hash_iterations}"
-        )
+        assert (
+            settings.password_hash_iterations == 600_000
+        ), f"Default debe ser 600_000 (OWASP 2023), recibido: {settings.password_hash_iterations}"
 
     def test_hash_password_con_600k_iteraciones_es_usable(self, env_development: None) -> None:
         """Hash con 600k iteraciones toma < 1s y produce output valido."""
@@ -213,9 +213,9 @@ class TestSettingsHardening:
         url = "postgresql+asyncpg://user:supersecret@db.example.com:5432/bodegaje"
         redacted = _redact_url(url)
         assert "supersecret" not in redacted, f"Password leaked en: {redacted!r}"
-        assert "***" in redacted or "REDACTED" in redacted or "user:" in redacted, (
-            f"Redaction no aplicada en: {redacted!r}"
-        )
+        assert (
+            "***" in redacted or "REDACTED" in redacted or "user:" in redacted
+        ), f"Redaction no aplicada en: {redacted!r}"
 
         # Caso 2: URL Redis con password.
         url_redis = "redis://:redis_password@redis.example.com:6379/0"

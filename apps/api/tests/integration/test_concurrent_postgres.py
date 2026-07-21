@@ -117,9 +117,9 @@ class TestConcurrentMovementsPostgres:
                 select(StockLevel).where(StockLevel.warehouse_id == wh_id)
             )
             final = result.scalar_one()
-            assert final.quantity >= Decimal("0.00"), (
-                f"OVERSELL DETECTADO: stock final = {final.quantity}"
-            )
+            assert final.quantity >= Decimal(
+                "0.00"
+            ), f"OVERSELL DETECTADO: stock final = {final.quantity}"
             # Si todas tuvieron éxito, stock debe ser exactamente 0
             if successes == 50:
                 assert final.quantity == Decimal("0.00")

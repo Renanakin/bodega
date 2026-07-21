@@ -144,8 +144,13 @@ jobs:
           fi
       - name: Verify .env.example has all placeholders
         run: |
-          if grep -E "^[A-Z_]+=$" infra/.env.example; then
-            echo "::error::infra/.env.example has empty values (should be __PLACEHOLDER__)"
+          # Buscar valores vacios EXCEPTO para campos que son opcionalmente
+          # vacios por diseno (SMTP auth, Sentry, S3 bucket).
+          # Estos pueden estar vacios para "feature desactivado" y la app
+          # los maneja correctamente (ej. sentry_dsn=None en pydantic).
+          if grep -E "^[A-Z_]+=$" infra/.env.example \
+              | grep -vE "^(SMTP_USERNAME|SMTP_PASSWORD|SENTRY_DSN|BACKUP_S3_BUCKET)="; then
+            echo "::error::infra/.env.example has empty values for required fields (should be __PLACEHOLDER__)"
             exit 1
           fi
           if ! grep -E "__CAMBIAR_EN_PRODUCCION__|__GENERAR_CON_" infra/.env.example; then
@@ -172,6 +177,13 @@ jobs:
           fi
           echo "Nginx production config: all security headers present"
       - name: Verify docker compose production is valid
+        env:
+          # Dummy values para validar solo la estructura del compose.
+          # NO usar en produccion real - ver infra/scripts/generate-secrets.py
+          JWT_SECRET: ci-validate-only-32-chars-aaaaaaaaaaaaaa
+          SECRET_KEY: ci-validate-only-32-chars-bbbbbbbbbbbbbb
+          POSTGRES_PASSWORD: ci-validate-only-32-chars-cccccccccc
+          DATABASE_URL: postgresql+asyncpg://bodegaje:dummy@db:5432/bodegaje
         run: |
           docker compose -f infra/docker/docker-compose.yml \
                          -f infra/docker/compose.production.yml config -q
