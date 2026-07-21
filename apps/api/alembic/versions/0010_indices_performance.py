@@ -105,17 +105,17 @@ def upgrade() -> None:
         unique=False,
     )
 
-    # notifications: query mas comun es "no leidas del usuario X".
-    op.create_index(
-        "ix_notifications_user_read",
-        "notificaciones",
-        ["user_id", "read_at"],
-        unique=False,
-    )
+    # NOTA: NO crear ix_notifications_user_read aqui. La tabla
+    # "notificaciones" no se crea en las migraciones (se crea via
+    # SQLAlchemy create_all() en el startup de la app). Si lo creamos
+    # aqui, falla con UndefinedTableError en Postgres sobre DB fresca.
+    # El indice ya existe a nivel modelo (ver db/models/notificaciones.py
+    # linea ~53: Index("ix_notificaciones_user_leida_created", ...)).
 
 
 def downgrade() -> None:
-    op.drop_index("ix_notifications_user_read", table_name="notificaciones")
+    # NOTA: ix_notifications_user_read no se dropea porque no se creo en
+    # esta migracion (ver comentario en upgrade).
     op.drop_index("ix_audit_logs_entity", table_name="audit_logs")
     op.drop_index("ix_audit_logs_user_created", table_name="audit_logs")
     # NOTA: uq_ordenes_codigo no se dropea porque no se creo en esta

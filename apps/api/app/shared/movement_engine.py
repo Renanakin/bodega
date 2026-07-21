@@ -18,13 +18,14 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.errors import InsufficientStockError, ProductNotFoundError, WarehouseNotFoundError
 from app.core.logging import get_logger
 from app.db.models.inventory import InventoryMovement, MovementType, StockLevel
 from app.db.models.products import Product
 from app.db.models.warehouses import Warehouse
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     pass

@@ -74,6 +74,9 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
+# `app/modules/*/router.py` y `app/api/router.py` tienen el mismo
+# basename "router". El __init__.py en app/ resuelve el conflicto
+# haciendo que mypy trate cada subdirectorio como paquete separado.
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
