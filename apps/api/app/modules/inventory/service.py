@@ -42,6 +42,7 @@ class StockLevelView:
     product_name: str
     quantity: Decimal
     min_quantity: Decimal
+    max_quantity: Decimal | None
     updated_at: datetime
 
 
@@ -106,6 +107,7 @@ class InventoryService:
                     product_name=product.name,
                     quantity=item.quantity,
                     min_quantity=item.min_quantity,
+                    max_quantity=item.max_quantity,
                     updated_at=item.updated_at,
                 )
             )

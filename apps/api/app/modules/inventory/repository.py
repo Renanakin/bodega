@@ -17,6 +17,7 @@ def _to_stock_level(row) -> StockLevelRecord:
         product_id=UUID(row["product_id"]),
         quantity=Decimal(str(row["quantity"])),
         min_quantity=Decimal(str(row["min_quantity"])),
+        max_quantity=Decimal(str(row["max_quantity"])) if row["max_quantity"] is not None else None,
         updated_at=datetime.fromisoformat(row["updated_at"]),
     )
 

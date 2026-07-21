@@ -63,6 +63,7 @@ class StockLevelResponse(BaseModel):
     product_name: str
     quantity: Decimal
     min_quantity: Decimal
+    max_quantity: Decimal | None = None
     updated_at: datetime
 
 
