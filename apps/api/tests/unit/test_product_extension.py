@@ -8,6 +8,7 @@ Cubre:
 - DELETE 404 si el producto no existe.
 - Relación 1:1: segundo PUT sobre mismo producto actualiza, no duplica.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -60,13 +61,9 @@ class ProductExtensionTestCase(unittest.TestCase):
 
     def test_get_404_sin_detalle(self) -> None:
         prod = _create_product(self.client, self.headers, "N-001")
-        r = self.client.get(
-            f"/api/v1/products/{prod}/neumatico", headers=self.headers
-        )
+        r = self.client.get(f"/api/v1/products/{prod}/neumatico", headers=self.headers)
         self.assertEqual(r.status_code, 404)
-        self.assertEqual(
-            r.json()["detail"]["code"], "detalle_neumatico_not_found"
-        )
+        self.assertEqual(r.json()["detail"]["code"], "detalle_neumatico_not_found")
 
     def test_upsert_y_get(self) -> None:
         prod = _create_product(self.client, self.headers, "N-002")
@@ -93,9 +90,7 @@ class ProductExtensionTestCase(unittest.TestCase):
         self.assertEqual(body["dot"], "2024-12-01")
         self.assertEqual(body["producto_id"], prod)
 
-        get_resp = self.client.get(
-            f"/api/v1/products/{prod}/neumatico", headers=self.headers
-        )
+        get_resp = self.client.get(f"/api/v1/products/{prod}/neumatico", headers=self.headers)
         self.assertEqual(get_resp.status_code, 200)
         self.assertEqual(get_resp.json()["ancho"], 205)
 
@@ -126,21 +121,15 @@ class ProductExtensionTestCase(unittest.TestCase):
         self.assertEqual(r2.json()["ancho"], 205)
 
         # Sigue siendo 1 fila
-        get_resp = self.client.get(
-            f"/api/v1/products/{prod}/neumatico", headers=self.headers
-        )
+        get_resp = self.client.get(f"/api/v1/products/{prod}/neumatico", headers=self.headers)
         self.assertEqual(get_resp.status_code, 200)
         self.assertEqual(get_resp.json()["ancho"], 205)
 
     def test_delete_404_sin_detalle(self) -> None:
         prod = _create_product(self.client, self.headers, "N-004")
-        r = self.client.delete(
-            f"/api/v1/products/{prod}/neumatico", headers=self.headers
-        )
+        r = self.client.delete(f"/api/v1/products/{prod}/neumatico", headers=self.headers)
         self.assertEqual(r.status_code, 404)
-        self.assertEqual(
-            r.json()["detail"]["code"], "detalle_neumatico_not_found"
-        )
+        self.assertEqual(r.json()["detail"]["code"], "detalle_neumatico_not_found")
 
     def test_delete_ok(self) -> None:
         prod = _create_product(self.client, self.headers, "N-005")
@@ -150,15 +139,11 @@ class ProductExtensionTestCase(unittest.TestCase):
             headers=self.headers,
         )
 
-        del_resp = self.client.delete(
-            f"/api/v1/products/{prod}/neumatico", headers=self.headers
-        )
+        del_resp = self.client.delete(f"/api/v1/products/{prod}/neumatico", headers=self.headers)
         self.assertEqual(del_resp.status_code, 204)
 
         # GET ahora debe devolver 404
-        get_resp = self.client.get(
-            f"/api/v1/products/{prod}/neumatico", headers=self.headers
-        )
+        get_resp = self.client.get(f"/api/v1/products/{prod}/neumatico", headers=self.headers)
         self.assertEqual(get_resp.status_code, 404)
 
     def test_product_not_found_en_upsert(self) -> None:
@@ -168,9 +153,7 @@ class ProductExtensionTestCase(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(r.status_code, 404)
-        self.assertEqual(
-            r.json()["detail"]["code"], "product_not_found"
-        )
+        self.assertEqual(r.json()["detail"]["code"], "product_not_found")
 
 
 if __name__ == "__main__":

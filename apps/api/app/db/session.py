@@ -24,6 +24,7 @@ Compatibilidad LEGACY (Fase 0/1) en `db/sqlite_legacy.py`:
 - `create_database`, `get_database` (factories).
 - Re-exportados aqui para preservar `from app.db.session import ...`.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -39,14 +40,6 @@ from typing import Any
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.db.base import Base
-from sqlalchemy import text
-from sqlalchemy.engine import CursorResult
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
 
 # Re-exports para retrocompatibilidad de imports (R5, regla 30 segundos).
 # Los imports del estilo `from app.db.session import SQLiteDatabase, get_database,
@@ -61,16 +54,20 @@ from app.db.records import (  # noqa: F401
     UserRecord,
     WarehouseRecord,
 )
-from app.db.sqlite_legacy import (  # noqa: F401
+from app.db.sqlite_legacy import (  # noqa: F401  # noqa: F401
     SQLiteDatabase,
+    _extract_sqlite_path_from_url,
     create_database,
     get_database,
     utcnow,
 )
-from app.db.sqlite_legacy import (  # noqa: F401
-    _extract_sqlite_path_from_url,
+from sqlalchemy import text
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
 )
-
 
 log = get_logger(__name__)
 
@@ -105,9 +102,11 @@ def get_engine() -> AsyncEngine:
         backend = detect_backend()
         if backend == "postgres":
             from app.db.postgres import create_postgres_engine
+
             _engine = create_postgres_engine()
         else:
             from app.db.sqlite import create_sqlite_engine
+
             _engine = create_sqlite_engine()
         log.info("db.engine_initialized", backend=backend)
     return _engine
@@ -150,8 +149,10 @@ async def ping_database() -> bool:
     backend = detect_backend()
     if backend == "postgres":
         from app.db.postgres import ping_postgres
+
         return await ping_postgres(engine)
     from app.db.sqlite import ping_sqlite
+
     return await ping_sqlite(engine)
 
 
@@ -415,9 +416,11 @@ def create_database_from_url(url: str, **kwargs: Any) -> Database:
     """
     if url.startswith("postgresql+asyncpg://"):
         from app.db.postgres import create_postgres_engine
+
         return PostgresDatabase(create_postgres_engine(**kwargs))
     if url.startswith("sqlite") or url.startswith("sqlite+aiosqlite"):
         from app.db.sqlite import create_sqlite_engine
+
         path = _extract_sqlite_path_from_url(url)
         return AsyncSQLiteDatabase(create_sqlite_engine(path))
     raise ValueError(f"URL de BD no soportada: {_redact_url(url)}")

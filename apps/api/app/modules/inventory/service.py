@@ -173,7 +173,7 @@ class InventoryService:
                 reference_id=payload.reference_id,
                 notes=payload.notes,
             )
-        except (WarehouseNotFoundError, ProductNotFoundError) as exc:
+        except (WarehouseNotFoundError, ProductNotFoundError):
             # El service los deja propagar tal cual; el handler de dominio
             # los traduce a 404/409.
             raise
@@ -209,7 +209,7 @@ class InventoryService:
         product_id: UUID,
         min_quantity: Decimal,
         max_quantity: Decimal | None,
-    ) -> "StockParametersView":
+    ) -> StockParametersView:
         """Crea o actualiza los parametros (min, max) de un (producto, bodega).
 
         Validaciones:
@@ -226,6 +226,7 @@ class InventoryService:
             raise ProductNotFoundError(str(product_id))
         if max_quantity is not None and max_quantity < min_quantity:
             from app.core.errors import InvalidStockParameterError  # noqa: PLC0415
+
             raise InvalidStockParameterError(
                 f"max_quantity ({max_quantity}) debe ser >= min_quantity ({min_quantity})"
             )
@@ -242,7 +243,6 @@ class InventoryService:
         product = self._product_repository.get_by_id(product_id)
         if stock is None or warehouse is None or product is None:
             # No deberia pasar, pero defensivo.
-            from app.core.errors import ProductNotFoundError  # noqa: PLC0415
             raise ProductNotFoundError(str(product_id))
 
         return StockParametersView(

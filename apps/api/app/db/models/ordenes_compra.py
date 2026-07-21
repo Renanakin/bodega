@@ -1,4 +1,5 @@
 """Modelos SQLAlchemy para ordenes de compra externas + email outbox (ADR-0005, ADR-0006)."""
+
 import enum
 import uuid
 from datetime import datetime
@@ -29,9 +30,7 @@ class OrdenCompra(Base):
         Index("ix_ordenes_bodega_principal", "id_bodega_principal"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     codigo: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     id_bodega_principal: Mapped[uuid.UUID] = mapped_column(
         GUID(),
@@ -89,9 +88,7 @@ class DetalleOrdenCompra(Base):
         primary_key=True,
     )
     cantidad_pedida: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
-    costo_unitario_pactado: Mapped[Decimal] = mapped_column(
-        Numeric(14, 2), nullable=False
-    )
+    costo_unitario_pactado: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
 
 
 class EmailOutbox(Base):
@@ -106,17 +103,13 @@ class EmailOutbox(Base):
         Index("ix_email_outbox_status", "status", "created_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     to_email: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str] = mapped_column(String(500), nullable=False)
     body_html: Mapped[str] = mapped_column(Text, nullable=False)
     template_name: Mapped[str] = mapped_column(String(100), nullable=True)
     template_context: Mapped[str] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="pending"
-    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     attempts: Mapped[int] = mapped_column(default=0, nullable=False)
     last_error: Mapped[str] = mapped_column(Text, nullable=True)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)

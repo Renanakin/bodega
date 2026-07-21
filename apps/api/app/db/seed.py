@@ -23,6 +23,7 @@ Reglas aplicadas:
 - R4: solo datos; la lógica de dominio vive en services.
 - R8: usa el logger estructurado.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -154,13 +155,19 @@ async def seed_database() -> dict[str, int]:
     # que el seed sea independiente del ciclo de vida de la app).
     engine = create_async_engine(settings.database_url, future=True)
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    counts: dict[str, int] = {"warehouses": 0, "products": 0, "inventory_movements": 0, "stock_levels": 0}
+    counts: dict[str, int] = {
+        "warehouses": 0,
+        "products": 0,
+        "inventory_movements": 0,
+        "stock_levels": 0,
+    }
 
     try:
         async with factory() as session:
             # Validar que las migraciones estén aplicadas (chequeo barato).
             # Si la tabla `warehouses` no existe, fallar rápido con mensaje claro.
             from sqlalchemy import text
+
             try:
                 await session.execute(text("SELECT 1 FROM warehouses LIMIT 0"))
             except Exception as exc:
@@ -169,13 +176,24 @@ async def seed_database() -> dict[str, int]:
                     f"Error: {exc}"
                 ) from exc
 
-            if await _seed_table(session, Warehouse, SEED_WAREHOUSE, name="warehouses") == "inserted":
+            if (
+                await _seed_table(session, Warehouse, SEED_WAREHOUSE, name="warehouses")
+                == "inserted"
+            ):
                 counts["warehouses"] += 1
             if await _seed_table(session, Product, SEED_PRODUCT, name="products") == "inserted":
                 counts["products"] += 1
-            if await _seed_table(session, InventoryMovement, SEED_MOVEMENT, name="inventory_movements") == "inserted":
+            if (
+                await _seed_table(
+                    session, InventoryMovement, SEED_MOVEMENT, name="inventory_movements"
+                )
+                == "inserted"
+            ):
                 counts["inventory_movements"] += 1
-            if await _seed_table(session, StockLevel, SEED_STOCK_LEVEL, name="stock_levels") == "inserted":
+            if (
+                await _seed_table(session, StockLevel, SEED_STOCK_LEVEL, name="stock_levels")
+                == "inserted"
+            ):
                 counts["stock_levels"] += 1
 
     finally:

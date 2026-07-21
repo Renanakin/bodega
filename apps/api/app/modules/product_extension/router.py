@@ -6,6 +6,7 @@ Endpoints (prefijo ``/products``):
 - ``PUT    /api/v1/products/{product_id}/neumatico``  — upsert
 - ``DELETE /api/v1/products/{product_id}/neumatico``  — 404 si no existe
 """
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -57,9 +58,7 @@ def upsert_detalle_neumatico(
     return service.upsert(product_id, payload)
 
 
-@router.delete(
-    "/{product_id}/neumatico", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/{product_id}/neumatico", status_code=status.HTTP_204_NO_CONTENT)
 def delete_detalle_neumatico(
     product_id: UUID,
     _=Depends(require_roles("admin", "supervisor")),

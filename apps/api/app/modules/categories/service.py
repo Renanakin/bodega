@@ -7,10 +7,10 @@ Reglas de negocio:
 - No se permite referencia circular (incluye caso directo: id == parent_id).
 - Soft delete: ``DELETE`` marca ``is_active=False`` (no borra fila).
 """
+
 from __future__ import annotations
 
 import uuid
-from typing import Iterable
 
 from app.core.errors import (
     CategoryCircularReferenceError,
@@ -61,9 +61,7 @@ class CategoryService:
         )
         return self._repository.add(category)
 
-    def update_category(
-        self, category_id: uuid.UUID, payload: CategoryUpdate
-    ) -> CategoryRecord:
+    def update_category(self, category_id: uuid.UUID, payload: CategoryUpdate) -> CategoryRecord:
         category = self.get_category(category_id)
 
         if payload.nombre is not None and payload.nombre != category.nombre:
@@ -99,9 +97,7 @@ class CategoryService:
 
     # -------------------------------------------------------- Fase 8: arbol
 
-    def get_arbol(
-        self, *, solo_activos: bool = True
-    ) -> list["CategoryNode"]:
+    def get_arbol(self, *, solo_activos: bool = True) -> list[CategoryNode]:  # noqa: F821
         """Devuelve la jerarquia completa como lista de nodos raiz.
 
         - Carga TODAS las categorias en una sola query (``list_all``).
@@ -156,11 +152,8 @@ class CategoryService:
                 nodes[r.parent_id].children.append(node)
         return roots
 
-    def _would_create_cycle(
-        self, target_id: uuid.UUID, new_parent_id: uuid.UUID
-    ) -> bool:
+    def _would_create_cycle(self, target_id: uuid.UUID, new_parent_id: uuid.UUID) -> bool:
         """Sube por la jerarquía desde new_parent_id; si llega a target_id, hay ciclo."""
-        ancestors: Iterable[uuid.UUID | None] = [new_parent_id]
         current: uuid.UUID | None = new_parent_id
         seen: set[uuid.UUID] = {new_parent_id}
         while current is not None:

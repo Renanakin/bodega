@@ -8,6 +8,7 @@ Endpoints:
 - ``PATCH  /api/v1/ubicaciones/{id}``                — activar/desactivar
 - ``DELETE /api/v1/ubicaciones/{id}``                — soft delete
 """
+
 from __future__ import annotations
 
 from uuid import UUID

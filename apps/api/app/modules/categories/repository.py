@@ -5,6 +5,7 @@ Acceso a datos sobre la tabla ``categories`` usando el ``SQLiteDatabase``
 legacy. Mantiene la convención de los módulos existentes (warehouses,
 products): dataclass ``CategoryRecord`` + métodos CRUD.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -58,15 +59,13 @@ class CategoryRepository:
             params.append(str(parent_id))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._db.query_all(
-            f"SELECT * FROM categories {where} ORDER BY nombre",
+            f"SELECT * FROM categories {where} ORDER BY nombre",  # noqa: S608
             tuple(params),
         )
         return [_to_category(row) for row in rows]
 
     def get_by_id(self, category_id: uuid.UUID) -> CategoryRecord | None:
-        row = self._db.query_one(
-            "SELECT * FROM categories WHERE id = ?", (str(category_id),)
-        )
+        row = self._db.query_one("SELECT * FROM categories WHERE id = ?", (str(category_id),))
         return _to_category(row) if row is not None else None
 
     def get_by_nombre(self, nombre: str) -> CategoryRecord | None:
@@ -127,7 +126,7 @@ class CategoryRepository:
             return
         params.append(str(category_id))
         self._db.execute(
-            f"UPDATE categories SET {', '.join(sets)} WHERE id = ?",
+            f"UPDATE categories SET {', '.join(sets)} WHERE id = ?",  # noqa: S608
             tuple(params),
         )
 

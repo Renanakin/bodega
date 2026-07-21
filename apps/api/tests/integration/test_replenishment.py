@@ -1,19 +1,18 @@
 """Tests para ReplenishmentEvaluator y stock multibodega (Fase 6)."""
+
 from __future__ import annotations
 
 import uuid
 from decimal import Decimal
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db.models.inventory import MovementType, StockLevel
 from app.db.models.products import Product
 from app.db.models.warehouses import Warehouse
 from app.modules.inventory.multibodega import StockMultibodegaService
 from app.modules.solicitudes.replenishment import ReplenishmentEvaluator
 from app.shared.movement_engine import MovementEngine, MovementRequest
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.integration
 
@@ -23,7 +22,9 @@ class TestReplenishmentEvaluator:
 
     @pytest.mark.asyncio
     async def test_creates_solicitud_when_below_minimum(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         wh_aux = Warehouse(id=uuid.uuid4(), code="AUX-R", name="Aux", warehouse_type="auxiliar")
         wh_princ = Warehouse(
@@ -64,7 +65,9 @@ class TestReplenishmentEvaluator:
 
     @pytest.mark.asyncio
     async def test_idempotent_pending(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         """No crea 2da solicitud si ya hay PENDING desde la misma bodega."""
         wh_aux = Warehouse(id=uuid.uuid4(), code="AUX-ID", name="Aux", warehouse_type="auxiliar")
@@ -104,7 +107,9 @@ class TestStockMultibodega:
 
     @pytest.mark.asyncio
     async def test_distribucion_por_sku(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         wh1 = Warehouse(id=uuid.uuid4(), code="W1", name="W1", warehouse_type="principal")
         wh2 = Warehouse(id=uuid.uuid4(), code="W2", name="W2", warehouse_type="auxiliar")
@@ -112,12 +117,26 @@ class TestStockMultibodega:
         async_session.add_all([wh1, wh2, p])
         await async_session.commit()
 
-        async_session.add_all([
-            StockLevel(id=uuid.uuid4(), warehouse_id=wh1.id, product_id=p.id,
-                      quantity=Decimal("100"), min_quantity=Decimal("10"), max_quantity=Decimal("500")),
-            StockLevel(id=uuid.uuid4(), warehouse_id=wh2.id, product_id=p.id,
-                      quantity=Decimal("3"), min_quantity=Decimal("10"), max_quantity=Decimal("50")),
-        ])
+        async_session.add_all(
+            [
+                StockLevel(
+                    id=uuid.uuid4(),
+                    warehouse_id=wh1.id,
+                    product_id=p.id,
+                    quantity=Decimal("100"),
+                    min_quantity=Decimal("10"),
+                    max_quantity=Decimal("500"),
+                ),
+                StockLevel(
+                    id=uuid.uuid4(),
+                    warehouse_id=wh2.id,
+                    product_id=p.id,
+                    quantity=Decimal("3"),
+                    min_quantity=Decimal("10"),
+                    max_quantity=Decimal("50"),
+                ),
+            ]
+        )
         await async_session.commit()
 
         service = StockMultibodegaService(async_session)
@@ -133,15 +152,22 @@ class TestStockMultibodega:
 
     @pytest.mark.asyncio
     async def test_resumen_bodegas(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(id=uuid.uuid4(), code="W-RES", name="W Res", warehouse_type="principal")
         async_session.add(wh)
         await async_session.commit()
-        async_session.add(StockLevel(
-            id=uuid.uuid4(), warehouse_id=wh.id, product_id=uuid.uuid4(),
-            quantity=Decimal("0"), min_quantity=Decimal("5"),
-        ))
+        async_session.add(
+            StockLevel(
+                id=uuid.uuid4(),
+                warehouse_id=wh.id,
+                product_id=uuid.uuid4(),
+                quantity=Decimal("0"),
+                min_quantity=Decimal("5"),
+            )
+        )
         await async_session.commit()
 
         service = StockMultibodegaService(async_session)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid  # noqa: F401  (usado en raw SQL via uuid.uuid4())
 from contextlib import AbstractContextManager
 from datetime import datetime
 from decimal import Decimal
@@ -85,7 +86,7 @@ class InventoryRepository:
             clauses.append("product_id = ?")
             params.append(str(product_id))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = self._db.query_all(f"SELECT * FROM stock_levels {where}", tuple(params))
+        rows = self._db.query_all(f"SELECT * FROM stock_levels {where}", tuple(params))  # noqa: S608
         return [_to_stock_level(row) for row in rows]
 
     def add_movement(self, movement: InventoryMovementRecord) -> InventoryMovementRecord:
@@ -137,7 +138,7 @@ class InventoryRepository:
             params.append(created_to.isoformat())
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._db.query_all(
-            f"SELECT * FROM inventory_movements {where} ORDER BY created_at DESC",
+            f"SELECT * FROM inventory_movements {where} ORDER BY created_at DESC",  # noqa: S608
             tuple(params),
         )
         return [_to_movement(row) for row in rows]

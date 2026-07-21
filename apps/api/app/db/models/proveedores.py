@@ -1,4 +1,5 @@
 """Modelo SQLAlchemy para proveedores externos."""
+
 import uuid
 
 from app.db.base import GUID, Base, created_at_column, updated_at_column
@@ -10,13 +11,9 @@ class Proveedor(Base):
     """Proveedor externo de productos."""
 
     __tablename__ = "proveedores"
-    __table_args__ = (
-        CheckConstraint("length(nombre) > 0", name="nombre_not_blank"),
-    )
+    __table_args__ = (CheckConstraint("length(nombre) > 0", name="nombre_not_blank"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     nombre: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
     rut: Mapped[str] = mapped_column(String(20), nullable=True, unique=True)
     email: Mapped[str] = mapped_column(String(255), nullable=True)

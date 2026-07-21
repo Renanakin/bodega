@@ -1,6 +1,7 @@
 """
 Tests unitarios para core/config.py (Reglas de Oro R1, R2).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -63,9 +64,12 @@ class TestSettings:
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/d")
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
         monkeypatch.setenv("JWT_SECRET", "x" * 32)
-        monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com,https://admin.example.com")
+        monkeypatch.setenv(
+            "CORS_ALLOWED_ORIGINS", "https://app.example.com,https://admin.example.com"
+        )
         reset_settings_cache()
         from app.core.config import Settings
+
         settings = Settings()
         assert "https://app.example.com" in settings.cors_origins_list
         assert "https://admin.example.com" in settings.cors_origins_list

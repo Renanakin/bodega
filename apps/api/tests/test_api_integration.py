@@ -18,6 +18,7 @@ References:
 - ADR-0001 §"Tests integración"
 - ADR-0001 IMP-005: pytest tests/test_api_integration.py -v debe pasar.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -171,9 +172,7 @@ class TestPostgresDatabase:
                 "now": datetime.now(UTC),
             },
         )
-        row = await db.fetch_one(
-            "SELECT * FROM warehouses WHERE code = :code", {"code": code}
-        )
+        row = await db.fetch_one("SELECT * FROM warehouses WHERE code = :code", {"code": code})
         assert row is not None
         assert row["name"] == "Test Warehouse"
         assert row["warehouse_type"] == "principal"
@@ -203,9 +202,7 @@ class TestPostgresDatabase:
                 "now": datetime.now(UTC),
             },
         )
-        row = await db.fetch_one(
-            "SELECT * FROM products WHERE sku = :sku", {"sku": sku}
-        )
+        row = await db.fetch_one("SELECT * FROM products WHERE sku = :sku", {"sku": sku})
         assert row is not None
         assert row["name"] == "Test Product"
 

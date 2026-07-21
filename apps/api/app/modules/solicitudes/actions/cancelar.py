@@ -4,25 +4,23 @@ Accion: cancelar solicitud PENDING (origen la cancela antes de aprobar).
 Solo aplica a solicitudes en estado PENDING. Si ya esta aprobada, hay
 que rechazarla o reversarla (no implementado en esta fase).
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import SolicitudInvalidStateError
 from app.core.logging import get_logger
 from app.db.models.notificaciones import NotificationType
 from app.db.models.solicitudes import SolicitudEstado
 from app.db.models.users import UserRole
-
 from app.modules.solicitudes.actions._common import (
     SolicitudView,
     lock_or_404,
     to_view,
 )
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.solicitudes.schemas import SolicitudCancelacion
@@ -41,9 +39,7 @@ async def cancel_solicitud(
     """Cancela una solicitud PENDING (origen la cancela antes de aprobar)."""
     solicitud = await lock_or_404(repo, solicitud_id)
     if solicitud.estado != SolicitudEstado.PENDING:
-        raise SolicitudInvalidStateError(
-            current=solicitud.estado.value, expected="pending"
-        )
+        raise SolicitudInvalidStateError(current=solicitud.estado.value, expected="pending")
     await repo.update_estado(solicitud_id, "cancelled")
     await session.commit()
     log.info(
@@ -60,10 +56,7 @@ async def cancel_solicitud(
         tipo=NotificationType.SOLICITUD_CANCELLED.value,
         titulo=f"Solicitud {solicitud.codigo} cancelada",
         mensaje="La solicitud fue cancelada antes de aprobar",
-        payload=(
-            f'{{"solicitud_id": "{solicitud.id}", '
-            f'"codigo": "{solicitud.codigo}"}}'
-        ),
+        payload=(f'{{"solicitud_id": "{solicitud.id}", "codigo": "{solicitud.codigo}"}}'),
     )
 
     return await to_view(session, repo, solicitud_id)
@@ -74,10 +67,8 @@ async def cancel(
     repo,
     notif,
     solicitud_id: uuid.UUID,
-    payload: "SolicitudCancelacion | None" = None,
+    _payload: SolicitudCancelacion | None = None,
     user_id: uuid.UUID | None = None,
 ) -> SolicitudView:
     """Sobrecarga: acepta ``SolicitudCancelacion`` opcional."""
-    return await cancel_solicitud(
-        session, repo, notif, solicitud_id, user_id=user_id
-    )
+    return await cancel_solicitud(session, repo, notif, solicitud_id, user_id=user_id)

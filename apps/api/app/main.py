@@ -16,6 +16,7 @@ Backend de BD (ADR-0001):
     * `None`/vacío             → default legacy SQLite file.
 - El backend activo se loguea al arranque (R8: observabilidad).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -26,7 +27,6 @@ from app.core.config import get_settings
 from app.core.errors import DomainError, domain_error_handler
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import (
-    CorrelationIdMiddleware,
     install_correlation_handlers,
 )
 from app.db.session import create_database
@@ -144,6 +144,7 @@ def _resolve_backend(db_path: str | None) -> tuple[str, str]:
     # Caso 3: DATABASE_URL define postgres → backend target de Fase 1.
     if settings.db_backend == "postgres":
         from app.db.session import _redact_url
+
         return "postgres", _redact_url(settings.database_url)
 
     # Caso 4: DATABASE_URL es sqlite explícito → backend SQLite async.
@@ -212,7 +213,6 @@ def create_app(db_path: str | None = None) -> FastAPI:
     elif backend == "sqlite":
         # Modo async SQLite (DATABASE_URL=sqlite+aiosqlite:///path):
         # el engine async maneja la BD principal, pero los routers sync
-        # legacy (auth/warehouses/products/audit/inventory/transfers)
         # siguen usando `app.state.db` con un SQLiteDatabase que apunta
         # al MISMO archivo. Habilitamos WAL mode para que ambos motores
         # (sqlite3 stdlib y aiosqlite) puedan leer/escribir concurrentes
@@ -247,7 +247,6 @@ def create_app(db_path: str | None = None) -> FastAPI:
     # Handlers de errores de dominio
     app.add_exception_handler(DomainError, domain_error_handler)
 
-    # Routers (bajo /api/v1)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
     # Métricas Prometheus (Fase 9: /metrics + métricas HTTP automáticas).

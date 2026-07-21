@@ -20,6 +20,7 @@ Arquitectura:
 - R4: el Evaluator NO escribe SQL directo; usa el AsyncSession inyectado
   y delega la creacion de solicitudes a `SolicitudService`.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -27,16 +28,14 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.logging import get_logger
 from app.db.models.inventory import StockLevel
 from app.db.models.products import Product
 from app.db.models.solicitudes import SolicitudEstado, SolicitudRecarga
 from app.db.models.warehouses import Warehouse
 from app.modules.solicitudes.service import SolicitudService
-
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     pass
@@ -81,10 +80,7 @@ def _calcular_cantidad(stock: StockLevel) -> Decimal:
     Garantiza que el resultado sea > 0; si por algun motivo la cuenta da
     <=0, retorna 0 y el caller debe skipear la linea.
     """
-    if stock.max_quantity is not None:
-        target = stock.max_quantity
-    else:
-        target = stock.min_quantity * 2
+    target = stock.max_quantity if stock.max_quantity is not None else stock.min_quantity * 2
     cantidad = target - stock.quantity
     return cantidad if cantidad > 0 else Decimal("0")
 
@@ -125,9 +121,7 @@ class ReplenishmentEvaluator:
 
     # ============================================================== PUBLIC API
 
-    async def evaluate_all(
-        self, *, dry_run: bool = False
-    ) -> ReplenishmentReport:
+    async def evaluate_all(self, *, dry_run: bool = False) -> ReplenishmentReport:
         """Evalua todas las bodegas auxiliares.
 
         Por cada combinacion (auxiliar, producto) con quantity <= min_quantity:
@@ -270,10 +264,12 @@ class ReplenishmentEvaluator:
                 continue
             prioridad = _calcular_prioridad(stock)
             prioridades.add(prioridad)
-            lineas.append({
-                "id_producto": stock.product_id,
-                "cantidad_solicitada": cantidad,
-            })
+            lineas.append(
+                {
+                    "id_producto": stock.product_id,
+                    "cantidad_solicitada": cantidad,
+                }
+            )
 
         if not lineas:
             return report

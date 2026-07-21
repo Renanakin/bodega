@@ -23,6 +23,7 @@ multi-thread. Ver ``tests/unit/test_movement_engine_thread_safety.py``
 para los tests E2E end-to-end del flujo completo con 2/5 threads
 concurrentes.
 """
+
 from __future__ import annotations
 
 import threading

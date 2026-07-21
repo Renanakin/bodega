@@ -2,6 +2,7 @@
 
 NOTA: NO usar `from __future__ import annotations` ni `relationship()` aquí.
 """
+
 import enum
 import uuid
 from datetime import datetime
@@ -33,9 +34,7 @@ class Transfer(Base):
         Index("ix_transfers_status_created_at", "status", "created_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     from_warehouse_id: Mapped[uuid.UUID] = mapped_column(
         GUID(),
@@ -57,7 +56,13 @@ class Transfer(Base):
         Numeric(14, 2), nullable=False, default=Decimal("0")
     )
     status: Mapped[TransferStatus] = mapped_column(
-        Enum(TransferStatus, name="transfer_status_enum", native_enum=False, length=30, values_callable=lambda x: [e.value for e in x]),
+        Enum(
+            TransferStatus,
+            name="transfer_status_enum",
+            native_enum=False,
+            length=30,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     priority: Mapped[str] = mapped_column(String(30), nullable=True)

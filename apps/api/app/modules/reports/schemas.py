@@ -10,6 +10,7 @@ Los schemas son DTOs de salida — no hay input mutante en este endpoint
 (read-only). El cliente puede generar el PDF desde ``EjecutivoSnapshot``
 usando jsPDF (sin pasar por el server).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -68,9 +69,7 @@ class EjecutivoSnapshot(BaseModel):
     top_productos_mas_movidos: list[TopProducto]
     top_productos_menos_movidos: list[TopProducto]
     valor_por_bodega: list[ValorPorBodega]
-    total_productos_activos: int = Field(
-        description="Cantidad de productos con is_active=True."
-    )
+    total_productos_activos: int = Field(description="Cantidad de productos con is_active=True.")
     total_bodegas: int
     config: dict[str, int] = Field(
         default_factory=lambda: {"top_n": 5},

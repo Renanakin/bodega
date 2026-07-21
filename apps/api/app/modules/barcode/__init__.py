@@ -21,6 +21,7 @@ especifica para el flujo de recepcion:
 para que ``SolicitudService._apply_receive`` no necesite ``try/except``
 y mantenga la logica de negocio legible.
 """
+
 from app.modules.barcode.validator import (
     BarcodeFormat,
     detect_format,

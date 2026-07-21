@@ -4,15 +4,14 @@ Router principal de la API v1.
 Regla R3: este archivo solo ensambla routers; no define rutas inline.
 Regla R5: orden de inclusion sigue el flujo: health -> auth -> recursos.
 """
-from fastapi import APIRouter
 
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.categories.router import router as categories_router
 from app.modules.health.router import router as health_router
 from app.modules.inventory.router import router as inventory_router
-from app.modules.notifications.router import router as notifications_router
 from app.modules.notificaciones.router import router as notificaciones_router
+from app.modules.notifications.router import router as notifications_router
 from app.modules.ordenes_compra.public_router import router as ordenes_public_router
 from app.modules.ordenes_compra.router import router as ordenes_router
 from app.modules.product_extension.router import router as product_extension_router
@@ -25,6 +24,7 @@ from app.modules.supervisores.router import router as supervisores_router
 from app.modules.transfers.router import router as transfers_router
 from app.modules.ubicaciones.router import router as ubicaciones_router
 from app.modules.warehouses.router import router as warehouses_router
+from fastapi import APIRouter
 
 api_router = APIRouter()
 api_router.include_router(health_router, tags=["health"])
@@ -34,9 +34,7 @@ api_router.include_router(warehouses_router, prefix="/warehouses", tags=["wareho
 api_router.include_router(products_router, prefix="/products", tags=["products"])
 # Sub-recurso de products (neumaticos). Comparte prefix con products_router;
 # FastAPI los matchea por path pattern, no por prefijo.
-api_router.include_router(
-    product_extension_router, prefix="/products", tags=["products"]
-)
+api_router.include_router(product_extension_router, prefix="/products", tags=["products"])
 api_router.include_router(categories_router, prefix="/categories", tags=["categories"])
 # Ubicaciones tiene paths bajo /bodegas/.../ubicaciones y /ubicaciones/{id};
 # se monta sin prefix para no romper la ruta raíz de bodegas.
@@ -55,8 +53,6 @@ api_router.include_router(notifications_router, prefix="/notificaciones", tags=[
 # Notificaciones in-app (Fase 8) — mismo prefijo, paths distintos.
 # Las rutas del modulo (/, /{id}/marcar-leida, /no-leidas/count, etc.) NO
 # colisionan con /outbox del modulo legacy porque FastAPI matchea por path.
-api_router.include_router(
-    notificaciones_router, prefix="/notificaciones", tags=["notificaciones"]
-)
+api_router.include_router(notificaciones_router, prefix="/notificaciones", tags=["notificaciones"])
 api_router.include_router(reports_router, prefix="/reports", tags=["reports"])
 api_router.include_router(transfers_router, prefix="/transfers", tags=["transfers"])

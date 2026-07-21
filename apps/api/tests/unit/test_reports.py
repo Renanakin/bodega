@@ -5,6 +5,7 @@ Cubre:
 - El snapshot incluye alertas_criticas_count cuando hay SKUs bajo minimo.
 - Los rankings (top 5 mas/menos movidos) respetan el parametro top_n.
 """
+
 from __future__ import annotations
 
 import os
@@ -15,19 +16,8 @@ from uuid import uuid4
 # Configurar el AsyncEngine antes de importar la app.
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ENVIRONMENT", "development")
-os.environ.setdefault(
-    "JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX"
-)
+os.environ.setdefault("JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
-
-from sqlalchemy import event  # noqa: E402
-from sqlalchemy.ext.asyncio import (  # noqa: E402
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from app.core.config import reset_settings_cache  # noqa: E402
 from app.db import models  # noqa: E402, F401
@@ -37,7 +27,14 @@ from app.db.models.products import Product
 from app.db.models.warehouses import Warehouse
 from app.main import create_app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-
+from sqlalchemy import event  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import StaticPool  # noqa: E402
 
 reset_settings_cache()
 
@@ -108,8 +105,7 @@ async def _seed_minimo_bajo(async_session: AsyncSession) -> None:
 class ReportesTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         from app.core.security import hash_password
-        from app.db.session import create_database, utcnow
-        from app.db.session import reset_engine_cache
+        from app.db.session import create_database, reset_engine_cache, utcnow
 
         reset_engine_cache()
         self.engine = _create_test_engine()
@@ -119,6 +115,7 @@ class ReportesTestCase(unittest.IsolatedAsyncioTestCase):
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
         import app.db.session as session_module
+
         session_module._engine = self.engine
         session_module._session_factory = self.session_factory
 
@@ -132,6 +129,7 @@ class ReportesTestCase(unittest.IsolatedAsyncioTestCase):
                 except Exception:
                     await s.rollback()
                     raise
+
         self.app.dependency_overrides[get_session] = _override_get_session
 
         legacy_db = create_database(":memory:")
@@ -158,6 +156,7 @@ class ReportesTestCase(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
         self.legacy_db.close()
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
 
     # ----------------------------------------------------------------- tests
@@ -165,9 +164,7 @@ class ReportesTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_report_ejecutivo_retorna_kpis(self) -> None:
         async with self.session_factory() as s:
             await _seed_minimo_bajo(s)
-        resp = self.client.get(
-            "/api/v1/reports/ejecutivo", headers=self.headers
-        )
+        resp = self.client.get("/api/v1/reports/ejecutivo", headers=self.headers)
         self.assertEqual(resp.status_code, 200, resp.text)
         body = resp.json()
         # Campos esperados del snapshot ejecutivo.
@@ -194,9 +191,7 @@ class ReportesTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_report_ejecutivo_incluye_alertas_criticas(self) -> None:
         async with self.session_factory() as s:
             await _seed_minimo_bajo(s)
-        resp = self.client.get(
-            "/api/v1/reports/ejecutivo", headers=self.headers
-        )
+        resp = self.client.get("/api/v1/reports/ejecutivo", headers=self.headers)
         self.assertEqual(resp.status_code, 200, resp.text)
         body = resp.json()
         # La seed creo un stock_level bajo minimo.
@@ -214,14 +209,12 @@ class ReportesTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_report_ejecutivo_respeta_top_n(self) -> None:
         # Insertamos 6 productos con 1 movimiento cada uno. top_n=3
         # deberia devolver solo 3 items en cada ranking.
-        from sqlalchemy import select
         from app.db.session import utcnow  # noqa: PLC0415
+        from sqlalchemy import select
 
         async with self.session_factory() as s:
             await _seed_minimo_bajo(s)
-            w = (
-                await s.execute(select(Warehouse))
-            ).scalars().first()
+            w = (await s.execute(select(Warehouse))).scalars().first()
             for i in range(5):
                 p = Product(
                     id=uuid4(),
@@ -246,9 +239,7 @@ class ReportesTestCase(unittest.IsolatedAsyncioTestCase):
                 s.add(m)
             await s.commit()
 
-        resp = self.client.get(
-            "/api/v1/reports/ejecutivo?top_n=3", headers=self.headers
-        )
+        resp = self.client.get("/api/v1/reports/ejecutivo?top_n=3", headers=self.headers)
         self.assertEqual(resp.status_code, 200, resp.text)
         body = resp.json()
         # Cada ranking limitado a 3.

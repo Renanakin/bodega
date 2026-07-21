@@ -5,21 +5,19 @@ Implementa el panel "Grilla Multibodega" del spec §4.1:
 buscador SKU -> muestra distribucion real con formato
 "Bodega X: 140 (P-01/E-02)".
 """
+
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.logging import get_logger
 from app.db.models.inventory import StockLevel
 from app.db.models.products import Product
-from app.db.models.ubicaciones import UbicacionEstanteria
 from app.db.models.warehouses import Warehouse
-
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 
@@ -75,13 +73,10 @@ class StockMultibodegaService:
         )
         stock_rows = list((await self._session.execute(stock_stmt)).all())
 
-        # Ubicaciones del producto
-        ub_stmt = (
-            select(InventarioStockReal := UbicacionEstanteria, UbicacionEstanteria, StockLevel)  # type: ignore[misc]
-            .join(StockLevel, UbicacionEstanteria.id_bodega == StockLevel.warehouse_id)
-            .where(StockLevel.product_id == producto.id)
-        )
-        # Nota: para Fase 6+, cuando se llene inventario_stock_real, esta query devolvera datos.
+        # NOTE: query de ubicaciones removida en Fase 3.2 (cleanup del N+1 fix).
+        # El query builder que estaba aca era dead code: el resultado nunca se usaba.
+        # Cuando se implemente el join con inventario_stock_real (Fase 6+), se
+        # reescribira limpio con la misma estrategia (1 query con WHERE id IN).
 
         bodegas_view = []
         total_global = Decimal("0")
@@ -122,10 +117,7 @@ class StockMultibodegaService:
         """Devuelve resumen de stock por bodega (para KPIs del dashboard)."""
         # Traer todas las bodegas y todos los stocks en 2 queries
         # (no en N+1). Luego agregar en Python.
-        wh_stmt = (
-            select(Warehouse)
-            .order_by(Warehouse.warehouse_type, Warehouse.code)
-        )
+        wh_stmt = select(Warehouse).order_by(Warehouse.warehouse_type, Warehouse.code)
         warehouses = list((await self._session.execute(wh_stmt)).scalars().all())
         if not warehouses:
             return []
@@ -148,15 +140,17 @@ class StockMultibodegaService:
         result = []
         for wh in warehouses:
             bucket = by_wh.get(wh.id, {})
-            result.append({
-                "id": wh.id,
-                "code": wh.code,
-                "name": wh.name,
-                "type": wh.warehouse_type,
-                "total_quantity": bucket.get("_total", Decimal("0")),
-                "skus_count": len(bucket.get("_stocks", [])),
-                "alertas_count": bucket.get("_alertas", 0),
-                "criticos_count": bucket.get("_criticos", 0),
-                "is_active": wh.is_active,
-            })
+            result.append(
+                {
+                    "id": wh.id,
+                    "code": wh.code,
+                    "name": wh.name,
+                    "type": wh.warehouse_type,
+                    "total_quantity": bucket.get("_total", Decimal("0")),
+                    "skus_count": len(bucket.get("_stocks", [])),
+                    "alertas_count": bucket.get("_alertas", 0),
+                    "criticos_count": bucket.get("_criticos", 0),
+                    "is_active": wh.is_active,
+                }
+            )
         return result

@@ -11,12 +11,12 @@ Las escrituras de transferencias (POST, PATCH, DELETE, cancel, approve,
 dispatch, receive) ya no son operativas. El cliente debe usar
 `/api/v1/solicitudes` en su lugar.
 """
+
 from __future__ import annotations
 
 import uuid
 
 from app.db.session import SQLiteDatabase, get_database
-from app.modules.auth.dependencies import require_roles
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.router import get_current_user
 from app.modules.auth.service import AuthService
@@ -97,12 +97,13 @@ def list_transfers(
 def get_transfer(
     transfer_id: uuid.UUID,
     _: object = Depends(get_current_user),
-    service: TransferService = Depends(get_transfer_service),
+    _service: TransferService = Depends(get_transfer_service),
 ) -> TransferResponse:
     """Lee una transferencia por id. DEPRECATED — usar /solicitudes."""
     from app.core.errors import TransferNotFoundError
-    from app.modules.transfers.repository import TransferRepository
     from app.db.session import get_database
+    from app.modules.transfers.repository import TransferRepository
+
     db = get_database(_app_dependency())
     repo = TransferRepository(db)
     transfer = repo.get_by_id(transfer_id)
@@ -147,7 +148,6 @@ def get_transfer(
 
 def _app_dependency():  # type: ignore[no-untyped-def]
     """Helper para inyeccion de DB en handlers sync."""
-    from fastapi import Request
     raise NotImplementedError("Use get_database from app.db.session directly")
 
 
@@ -162,16 +162,11 @@ def get_derived_transfer(
     entre transfer y la primera linea de la solicitud). Si no hay mapping,
     retorna 404. Si la solicitud existe, retorna la vista derivada.
     """
+
     from app.core.errors import TransferNotFoundError
-    from app.db.session import get_database
-    from app.modules.solicitudes.service import SolicitudService
-    from app.modules.transfers.repository import TransferRepository
-    from app.db.session import SQLiteDatabase
-    from fastapi import Request
     from app.modules.products.repository import ProductRepository
+    from app.modules.transfers.repository import TransferRepository
     from app.modules.warehouses.repository import WarehouseRepository
-    from datetime import datetime
-    from decimal import Decimal
 
     # En el router sync (Fase 0/1), no tenemos acceso a AsyncSession.
     # Por compat, este endpoint solo funciona si la BD es la misma sync
@@ -225,17 +220,14 @@ def get_derived_transfer(
     )
 
 
-def _get_legacy_db() -> "SQLiteDatabase | None":  # type: ignore[name-defined]  # noqa: F821
+def _get_legacy_db() -> SQLiteDatabase | None:  # type: ignore[name-defined]  # noqa: F821
     """Intenta obtener el SQLiteDatabase legacy del app state.
 
     Retorna None si la app no usa el legacy sync (caso async puro).
     """
     try:
-        from app.db.session import get_database
         # get_database es FastAPI dependency, no funciona aca.
         # Necesitamos acceso al app.state.
-        from fastapi import Request
-        from app.core.config import get_settings
         return None  # Por ahora, no exponemos legacy /derived
     except Exception:
         return None
@@ -272,7 +264,9 @@ def update_transfer(
     _gone("PATCH /transfers/{id}")
 
 
-@router.post("/{transfer_id}/cancel", response_model=TransferResponse, status_code=status.HTTP_410_GONE)
+@router.post(
+    "/{transfer_id}/cancel", response_model=TransferResponse, status_code=status.HTTP_410_GONE
+)
 def cancel_transfer(
     transfer_id: uuid.UUID,  # noqa: ARG001
     _=Depends(get_current_user),
@@ -280,7 +274,9 @@ def cancel_transfer(
     _gone("POST /transfers/{id}/cancel")
 
 
-@router.post("/{transfer_id}/approve", response_model=TransferResponse, status_code=status.HTTP_410_GONE)
+@router.post(
+    "/{transfer_id}/approve", response_model=TransferResponse, status_code=status.HTTP_410_GONE
+)
 def approve_transfer(
     transfer_id: uuid.UUID,  # noqa: ARG001
     _=Depends(get_current_user),
@@ -288,7 +284,9 @@ def approve_transfer(
     _gone("POST /transfers/{id}/approve")
 
 
-@router.post("/{transfer_id}/dispatch", response_model=TransferResponse, status_code=status.HTTP_410_GONE)
+@router.post(
+    "/{transfer_id}/dispatch", response_model=TransferResponse, status_code=status.HTTP_410_GONE
+)
 def dispatch_transfer(
     transfer_id: uuid.UUID,  # noqa: ARG001
     payload: TransferDispatch,  # noqa: ARG001
@@ -297,7 +295,9 @@ def dispatch_transfer(
     _gone("POST /transfers/{id}/dispatch")
 
 
-@router.post("/{transfer_id}/receive", response_model=TransferResponse, status_code=status.HTTP_410_GONE)
+@router.post(
+    "/{transfer_id}/receive", response_model=TransferResponse, status_code=status.HTTP_410_GONE
+)
 def receive_transfer(
     transfer_id: uuid.UUID,  # noqa: ARG001
     payload: TransferReceive,  # noqa: ARG001

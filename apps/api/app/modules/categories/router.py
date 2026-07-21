@@ -12,6 +12,7 @@ El router es liviano (Regla de Oro): validacion de input via Pydantic,
 logica en ``CategoryService``. Errores de dominio se traducen a HTTP
 vía ``DomainError`` handler registrado en ``main.py``.
 """
+
 from __future__ import annotations
 
 from uuid import UUID

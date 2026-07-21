@@ -4,6 +4,7 @@ Repository del sub-recurso ``detalles_neumaticos`` (Fase 2).
 Acceso a datos sobre la tabla ``detalles_neumaticos`` (PK = ``producto_id``,
 relación 1:1 opt-in con ``products``).
 """
+
 from __future__ import annotations
 
 import uuid

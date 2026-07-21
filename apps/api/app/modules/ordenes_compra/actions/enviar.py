@@ -12,12 +12,11 @@ Devuelve tupla (view, token, outbox_id). El token NO se devuelve al
 cliente en la API final (viaja en el email); aqui se incluye solo
 para facilitar testing E2E.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import InvalidOrdenCompraStatusError
 from app.core.logging import get_logger
@@ -30,9 +29,8 @@ from app.db.models.ordenes_compra import (
 from app.db.models.supervisores import Supervisor
 from app.db.models.users import UserRole
 from app.modules.notificaciones.service import NotificacionesService
-
 from app.modules.ordenes_compra.actions._common import OrdenCompraView, require_oc, to_view
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 
@@ -80,9 +78,7 @@ async def enviar_correo(
         f'<p><a href="/ordenes-compra/aprobar/{token}">Aprobar/Rechazar OC</a></p>'
     )
     context = (
-        '{"oc_id": "' + str(oc.id) + '", '
-        '"codigo": "' + oc.codigo + '", '
-        '"token": "' + token + '"}'
+        '{"oc_id": "' + str(oc.id) + '", "codigo": "' + oc.codigo + '", "token": "' + token + '"}'
     )
     outbox = EmailOutbox(
         id=uuid.uuid4(),
@@ -113,10 +109,7 @@ async def enviar_correo(
         tipo=NotificationType.ORDEN_COMPRA_ENVIADA.value,
         titulo=f"OC {oc.codigo} enviada a supervisor",
         mensaje=f"Proveedor: {oc.proveedor_nombre} - Total: {oc.total_estimado}",
-        payload=(
-            f'{{"oc_id": "{oc.id}", '
-            f'"codigo": "{oc.codigo}"}}'
-        ),
+        payload=(f'{{"oc_id": "{oc.id}", "codigo": "{oc.codigo}"}}'),
     )
 
     return await to_view(session, oc), token, outbox.id
@@ -132,7 +125,5 @@ async def enviar_a_supervisor(
 
     Devuelve solo (view, token) por compatibilidad con la API previa.
     """
-    view, token, _outbox_id = await enviar_correo(
-        session, notif, oc_id, user_id=user_id
-    )
+    view, token, _outbox_id = await enviar_correo(session, notif, oc_id, user_id=user_id)
     return view, token

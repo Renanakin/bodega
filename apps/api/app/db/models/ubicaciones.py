@@ -1,4 +1,5 @@
 """Modelo SQLAlchemy para ubicaciones físicas de estanteria (Nivel 2 de stock)."""
+
 import uuid
 
 from app.db.base import GUID, Base, created_at_column, updated_at_column
@@ -12,7 +13,10 @@ class UbicacionEstanteria(Base):
     __tablename__ = "ubicaciones_estanteria"
     __table_args__ = (
         UniqueConstraint(
-            "id_bodega", "pasillo", "estanteria", "altura",
+            "id_bodega",
+            "pasillo",
+            "estanteria",
+            "altura",
             name="uq_ubicaciones_bodega_pasillo_estanteria_altura",
         ),
         CheckConstraint("pasillo > 0", name="pasillo_positive"),
@@ -20,9 +24,7 @@ class UbicacionEstanteria(Base):
         CheckConstraint("altura > 0", name="altura_positive"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     id_bodega: Mapped[uuid.UUID] = mapped_column(
         GUID(),
         ForeignKey("warehouses.id", ondelete="CASCADE"),

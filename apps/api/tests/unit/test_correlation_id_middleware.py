@@ -27,20 +27,18 @@ Tests cubiertos:
 - correlation_id entrante se preserva (echo)
 - correlation_id generado es un UUID valido
 """
+
 from __future__ import annotations
 
 import re
 import unittest
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
-
 from app.core.middleware import (
-    CorrelationIdMiddleware,
-    exception_handler_with_correlation_id,
     install_correlation_handlers,
 )
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 
 def _create_test_app() -> FastAPI:

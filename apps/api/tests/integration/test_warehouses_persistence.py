@@ -3,19 +3,17 @@ Tests de integración: persistencia con async engine (R6).
 
 Valida el ciclo CRUD completo contra SQLite async.
 """
+
 from __future__ import annotations
 
 import uuid
-
-import pytest
-from sqlalchemy import select
-
-from app.db.base import Base
-from app.db.models.warehouses import Warehouse
-from app.db.models.products import Product
-from app.db.models.inventory import StockLevel, MovementType
 from decimal import Decimal
 
+import pytest
+from app.db.models.inventory import MovementType, StockLevel
+from app.db.models.products import Product
+from app.db.models.warehouses import Warehouse
+from sqlalchemy import select
 
 pytestmark = pytest.mark.integration
 
@@ -36,9 +34,7 @@ class TestWarehousesCRUD:
         await async_session.commit()
 
         # Re-leer desde la BD
-        result = await async_session.execute(
-            select(Warehouse).where(Warehouse.code == "CENTRAL")
-        )
+        result = await async_session.execute(select(Warehouse).where(Warehouse.code == "CENTRAL"))
         saved = result.scalar_one()
         assert saved.name == "Bodega Central"
         assert saved.warehouse_type == "principal"
@@ -66,7 +62,9 @@ class TestStockMovements:
 
     @pytest.mark.asyncio
     async def test_create_warehouse_product_and_stock(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         warehouse = Warehouse(
             id=uuid.uuid4(),
@@ -116,7 +114,9 @@ class TestConcurrentMovements:
 
     @pytest.mark.asyncio
     async def test_sequential_movements_no_oversell(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         """50 movimientos secuenciales de salida no producen oversell."""
         from app.db.models.inventory import InventoryMovement
@@ -180,7 +180,9 @@ class TestConcurrentMovements:
 
     @pytest.mark.asyncio
     async def test_oversell_rejected_by_validation(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         """Si intentamos sacar más de lo que hay, la validación service lo rechaza.
 

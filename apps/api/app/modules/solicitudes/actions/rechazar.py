@@ -3,25 +3,23 @@ Accion: rechazar solicitud (PENDING o APPROVED -> REJECTED) con motivo.
 
 Solo el admin o supervisor puede rechazar. Se notifica al origen.
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import SolicitudInvalidStateError
 from app.core.logging import get_logger
 from app.db.models.notificaciones import NotificationType
 from app.db.models.solicitudes import SolicitudEstado
 from app.db.models.users import UserRole
-
 from app.modules.solicitudes.actions._common import (
     SolicitudView,
     lock_or_404,
     to_view,
 )
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.solicitudes.schemas import SolicitudRechazo
@@ -56,6 +54,7 @@ async def reject_solicitud(
     from app.modules.observability.metrics import (  # noqa: PLC0415
         SOLICITUDES_RECHAZADAS_TOTAL,
     )
+
     SOLICITUDES_RECHAZADAS_TOTAL.inc()
 
     log.info(
@@ -88,7 +87,7 @@ async def reject(
     repo,
     notif,
     solicitud_id: uuid.UUID,
-    payload: "SolicitudRechazo",
+    payload: SolicitudRechazo,
     user_id: uuid.UUID | None = None,
 ) -> SolicitudView:
     """Sobrecarga: acepta ``SolicitudRechazo`` Pydantic."""

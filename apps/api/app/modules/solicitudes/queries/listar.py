@@ -1,12 +1,12 @@
 """Query: listar solicitudes con filtros."""
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.modules.solicitudes.actions._common import SolicitudView, to_view
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def list_solicitudes(
@@ -17,9 +17,7 @@ async def list_solicitudes(
     id_bodega_origen: uuid.UUID | None = None,
 ) -> list[SolicitudView]:
     """Lista solicitudes con filtros (compat con tests previos)."""
-    rows = await repo.list(
-        estado=estado, id_bodega_origen=id_bodega_origen
-    )
+    rows = await repo.list(estado=estado, id_bodega_origen=id_bodega_origen)
     return [await to_view(session, repo, s.id) for s in rows]
 
 

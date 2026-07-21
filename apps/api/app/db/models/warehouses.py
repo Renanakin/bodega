@@ -4,6 +4,7 @@ NOTA: NO usar `from __future__ import annotations` ni `relationship()` por ahora
 Hay un bug en SQLAlchemy 2.0.36 + Python 3.14 con Mapped[ForwardRef].
 Las relaciones se hacen via queries en los repositories.
 """
+
 import uuid
 
 from app.db.base import GUID, Base, created_at_column, updated_at_column
@@ -27,9 +28,7 @@ class Warehouse(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     warehouse_type: Mapped[str] = mapped_column(String(30), nullable=False)

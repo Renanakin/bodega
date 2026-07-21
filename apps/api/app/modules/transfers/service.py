@@ -189,13 +189,15 @@ class TransferService:
             self._transfer_repository.update_transfer(transfer)
             return self._to_view(transfer)
 
-    def dispatch_transfer(self, transfer_id: UUID, payload: TransferDispatch | None = None) -> TransferView:
+    def dispatch_transfer(
+        self, transfer_id: UUID, payload: TransferDispatch | None = None
+    ) -> TransferView:
         with self._transfer_repository.transaction():
             transfer = self._require_transfer(transfer_id)
             if transfer.status != "approved":
                 raise InvalidTransferStatusError(transfer.status, "approved")
 
-            origin = self._require_warehouse(transfer.from_warehouse_id)
+            self._require_warehouse(transfer.from_warehouse_id)
             self._require_warehouse(transfer.to_warehouse_id)
             self._require_product(transfer.product_id)
 

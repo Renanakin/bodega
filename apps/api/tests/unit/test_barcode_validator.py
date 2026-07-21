@@ -12,10 +12,10 @@ Cubre:
 Los tests son sincronos y NO requieren BD: el modulo ``barcode`` es
 codigo puro (sin dependencias de SQLAlchemy / Pydantic).
 """
+
 from __future__ import annotations
 
 import pytest
-
 from app.core.errors import BarcodeFormatError
 from app.modules.barcode import (
     BarcodeFormat,
@@ -24,7 +24,6 @@ from app.modules.barcode import (
     normalize,
     validate,
 )
-
 
 pytestmark = pytest.mark.unit
 

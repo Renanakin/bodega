@@ -1,18 +1,17 @@
 """Router para inspeccionar email_outbox (debug/admin)."""
+
 from __future__ import annotations
 
 import uuid
-
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.db.models.ordenes_compra import EmailOutbox
 from app.db.session import get_session
 from app.modules.auth.dependencies import require_roles
-
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 

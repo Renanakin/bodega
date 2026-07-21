@@ -26,11 +26,11 @@ Custom metrics:
 - Stock: movimientos, oversells rechazados.
 - Worker: pool BD.
 """
+
 from __future__ import annotations
 
 from prometheus_client import Counter, Gauge, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
-
 
 # =============================================================================
 # Solicitudes
@@ -150,9 +150,7 @@ REPLENISHMENT_SOLICITUDES_CREADAS_TOTAL = Counter(
     "bodegaje_replenishment_solicitudes_creadas_total",
     "Total de solicitudes creadas por el ReplenishmentEvaluator automatico",
 )
-replenishment_solicitudes_creadas_total = (
-    REPLENISHMENT_SOLICITUDES_CREADAS_TOTAL
-)
+replenishment_solicitudes_creadas_total = REPLENISHMENT_SOLICITUDES_CREADAS_TOTAL
 
 
 # =============================================================================
@@ -217,9 +215,7 @@ def instrument_app(app) -> None:  # type: ignore[no-untyped-def]
         should_ignore_untemplated=True,
         excluded_handlers=["/health", "/metrics"],
     )
-    instrumentator.instrument(app).expose(
-        app, endpoint="/metrics", include_in_schema=False
-    )
+    instrumentator.instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 # =============================================================================
@@ -238,16 +234,15 @@ async def update_solicitudes_gauge_from_db(session_factory) -> None:  # type: ig
             ``app.db.session.get_session_factory()``).
     """
     # Import local para evitar circular imports al cargar el modulo.
-    from sqlalchemy import func, select  # noqa: PLC0415
-
     from app.db.models.solicitudes import SolicitudRecarga  # noqa: PLC0415
+    from sqlalchemy import func, select  # noqa: PLC0415
 
     async with session_factory() as session:
         rows = (
             await session.execute(
-                select(
-                    SolicitudRecarga.estado, func.count(SolicitudRecarga.id)
-                ).group_by(SolicitudRecarga.estado)
+                select(SolicitudRecarga.estado, func.count(SolicitudRecarga.id)).group_by(
+                    SolicitudRecarga.estado
+                )
             )
         ).all()
         for estado, count in rows:
@@ -261,16 +256,13 @@ async def update_email_outbox_gauge_from_db(session_factory) -> None:  # type: i
 
     Cuenta los emails en ``email_outbox`` con ``status='pending'``.
     """
-    from sqlalchemy import func, select  # noqa: PLC0415
-
     from app.db.models.ordenes_compra import EmailOutbox  # noqa: PLC0415
+    from sqlalchemy import func, select  # noqa: PLC0415
 
     async with session_factory() as session:
         count = (
             await session.execute(
-                select(func.count(EmailOutbox.id)).where(
-                    EmailOutbox.status == "pending"
-                )
+                select(func.count(EmailOutbox.id)).where(EmailOutbox.status == "pending")
             )
         ).scalar_one()
         EMAIL_OUTBOX_PENDING.set(count)

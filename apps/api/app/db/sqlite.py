@@ -3,6 +3,7 @@ Engine y session async para SQLite (modo tests o dev ultra-ligero).
 
 NO usar en producción (ADR-0001). Solo para tests rápidos y demos.
 """
+
 from __future__ import annotations
 
 from app.core.config import get_settings
@@ -56,6 +57,7 @@ async def ping_sqlite(engine: AsyncEngine) -> bool:
     """Ping al SQLite. Retorna True si responde."""
     try:
         from sqlalchemy import text
+
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         return True

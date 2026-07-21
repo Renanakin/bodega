@@ -14,17 +14,16 @@ Mockeamos:
 - ``ping_database`` (test_async_session expone la funcion).
 - ``_check_redis`` y ``_check_worker`` (funciones internas del modulo).
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from app.modules.health import router as health_module
 from app.modules.health.router import router as health_router
-
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 pytestmark = pytest.mark.unit
 
@@ -45,21 +44,23 @@ class TestHealthcheckAllOk:
 
         with (
             patch.object(
-                health_module, "_check_db", new=AsyncMock(
+                health_module,
+                "_check_db",
+                new=AsyncMock(
                     return_value={"status": "ok", "backend": "sqlite", "latency_ms": 0.5}
-                )
+                ),
             ),
             patch.object(
-                health_module, "_check_redis", new=AsyncMock(
-                    return_value={"status": "ok", "latency_ms": 0.3}
-                )
+                health_module,
+                "_check_redis",
+                new=AsyncMock(return_value={"status": "ok", "latency_ms": 0.3}),
             ),
             patch.object(
-                health_module, "_check_worker", new=AsyncMock(
-                    return_value={
-                        "status": "ok", "active_workers": "1", "latency_ms": 0.4
-                    }
-                )
+                health_module,
+                "_check_worker",
+                new=AsyncMock(
+                    return_value={"status": "ok", "active_workers": "1", "latency_ms": 0.4}
+                ),
             ),
         ):
             response = client.get("/api/v1/health")
@@ -91,25 +92,27 @@ class TestHealthcheckDown:
 
         with (
             patch.object(
-                health_module, "_check_db", new=AsyncMock(
+                health_module,
+                "_check_db",
+                new=AsyncMock(
                     return_value={
                         "status": "down",
                         "backend": "postgres",
                         "error": "connection refused",
                     }
-                )
+                ),
             ),
             patch.object(
-                health_module, "_check_redis", new=AsyncMock(
-                    return_value={"status": "ok", "latency_ms": 0.3}
-                )
+                health_module,
+                "_check_redis",
+                new=AsyncMock(return_value={"status": "ok", "latency_ms": 0.3}),
             ),
             patch.object(
-                health_module, "_check_worker", new=AsyncMock(
-                    return_value={
-                        "status": "ok", "active_workers": "1", "latency_ms": 0.4
-                    }
-                )
+                health_module,
+                "_check_worker",
+                new=AsyncMock(
+                    return_value={"status": "ok", "active_workers": "1", "latency_ms": 0.4}
+                ),
             ),
         ):
             response = client.get("/api/v1/health")
@@ -126,19 +129,21 @@ class TestHealthcheckDown:
 
         with (
             patch.object(
-                health_module, "_check_db", new=AsyncMock(
+                health_module,
+                "_check_db",
+                new=AsyncMock(
                     return_value={"status": "ok", "backend": "sqlite", "latency_ms": 0.5}
-                )
+                ),
             ),
             patch.object(
-                health_module, "_check_redis", new=AsyncMock(
-                    return_value={"status": "down", "error": "redis is down"}
-                )
+                health_module,
+                "_check_redis",
+                new=AsyncMock(return_value={"status": "down", "error": "redis is down"}),
             ),
             patch.object(
-                health_module, "_check_worker", new=AsyncMock(
-                    return_value={"status": "down", "error": "no arq keys"}
-                )
+                health_module,
+                "_check_worker",
+                new=AsyncMock(return_value={"status": "down", "error": "no arq keys"}),
             ),
         ):
             response = client.get("/api/v1/health")
@@ -154,23 +159,27 @@ class TestHealthcheckDown:
 
         with (
             patch.object(
-                health_module, "_check_db", new=AsyncMock(
+                health_module,
+                "_check_db",
+                new=AsyncMock(
                     return_value={"status": "ok", "backend": "sqlite", "latency_ms": 0.5}
-                )
+                ),
             ),
             patch.object(
-                health_module, "_check_redis", new=AsyncMock(
-                    return_value={"status": "ok", "latency_ms": 0.3}
-                )
+                health_module,
+                "_check_redis",
+                new=AsyncMock(return_value={"status": "ok", "latency_ms": 0.3}),
             ),
             patch.object(
-                health_module, "_check_worker", new=AsyncMock(
+                health_module,
+                "_check_worker",
+                new=AsyncMock(
                     return_value={
                         "status": "down",
                         "active_workers": "0",
                         "latency_ms": 0.2,
                     }
-                )
+                ),
             ),
         ):
             response = client.get("/api/v1/health")
@@ -204,21 +213,23 @@ class TestHealthResponseShape:
 
         with (
             patch.object(
-                health_module, "_check_db", new=AsyncMock(
+                health_module,
+                "_check_db",
+                new=AsyncMock(
                     return_value={"status": "ok", "backend": "sqlite", "latency_ms": 0.5}
-                )
+                ),
             ),
             patch.object(
-                health_module, "_check_redis", new=AsyncMock(
-                    return_value={"status": "ok", "latency_ms": 0.3}
-                )
+                health_module,
+                "_check_redis",
+                new=AsyncMock(return_value={"status": "ok", "latency_ms": 0.3}),
             ),
             patch.object(
-                health_module, "_check_worker", new=AsyncMock(
-                    return_value={
-                        "status": "ok", "active_workers": "1", "latency_ms": 0.4
-                    }
-                )
+                health_module,
+                "_check_worker",
+                new=AsyncMock(
+                    return_value={"status": "ok", "active_workers": "1", "latency_ms": 0.4}
+                ),
             ),
         ):
             response = client.get("/api/v1/health")
@@ -229,13 +240,14 @@ class TestHealthResponseShape:
 
     def test_health_check_db_trunca_errores_a_200_chars(self) -> None:
         """``_check_db`` trunca el error a 200 chars (defensa contra
-       泄露 de passwords en URLs de conexion)."""
+        泄露 de passwords en URLs de conexion)."""
         # Construimos un error gigante con un secret embedded.
         long_error_with_secret = "x" * 500 + "PASSWORDLEAKED123" + "y" * 500
 
         # Llamamos la funcion real (no mock) con un backend inexistente.
         # Eso forzara la rama ``except Exception``.
         import asyncio
+
         result = asyncio.run(
             health_module._check_db_for_test(long_error_with_secret)  # type: ignore[attr-defined]
             if hasattr(health_module, "_check_db_for_test")
@@ -249,16 +261,12 @@ class TestHealthResponseShape:
             # ``_check_db`` directamente con el error esperado.
             secret_error = long_error_with_secret
             with patch.object(
-                health_module, "ping_database", new=AsyncMock(
-                    side_effect=Exception(secret_error)
-                )
+                health_module, "ping_database", new=AsyncMock(side_effect=Exception(secret_error))
             ):
                 result = asyncio.run(health_module._check_db())
         # El error debe estar truncado a 200 chars y NO contener el secret.
         error = result.get("error", "")
-        assert "PASSWORDLEAKED123" not in error, (
-            f"Secret leaked en health response: {error!r}"
-        )
+        assert "PASSWORDLEAKED123" not in error, f"Secret leaked en health response: {error!r}"
         assert len(error) <= 200, f"Error no truncado a 200 chars: {len(error)}"
 
     def test_health_live_siempre_200(self) -> None:
@@ -275,9 +283,9 @@ class TestHealthResponseShape:
         client = TestClient(app)
 
         with patch.object(
-            health_module, "_check_db", new=AsyncMock(
-                return_value={"status": "ok", "backend": "sqlite", "latency_ms": 0.5}
-            )
+            health_module,
+            "_check_db",
+            new=AsyncMock(return_value={"status": "ok", "backend": "sqlite", "latency_ms": 0.5}),
         ):
             response = client.get("/api/v1/health/ready")
 
@@ -290,13 +298,15 @@ class TestHealthResponseShape:
         client = TestClient(app)
 
         with patch.object(
-            health_module, "_check_db", new=AsyncMock(
+            health_module,
+            "_check_db",
+            new=AsyncMock(
                 return_value={
                     "status": "down",
                     "backend": "postgres",
                     "error": "no connection",
                 }
-            )
+            ),
         ):
             response = client.get("/api/v1/health/ready")
 

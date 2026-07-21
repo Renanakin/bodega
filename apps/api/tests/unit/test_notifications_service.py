@@ -14,24 +14,23 @@ Mockeamos:
 - ``app.modules.notifications.smtp.send_email`` (cliente aiosmtplib)
   — para verificar envio sin tocar SMTP.
 """
+
 from __future__ import annotations
 
 import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app import worker as worker_module
 from app.db.models.ordenes_compra import EmailOutbox
-from app.modules.notifications import smtp as smtp_module
 from app.modules.notifications import service as svc_module
+from app.modules.notifications import smtp as smtp_module
 from app.modules.notifications.service import (
     InvalidEmailError,
     NotificationsService,
 )
-
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.unit
 
@@ -72,7 +71,10 @@ def enqueue_mock() -> AsyncMock:
 class TestEnqueue:
     @pytest.mark.asyncio
     async def test_enqueue_inserta_outbox_y_lpush_redis(
-        self, async_engine, async_session: AsyncSession, enqueue_mock: AsyncMock  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,
+        enqueue_mock: AsyncMock,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         # Patch del helper en su modulo de origen (app.worker) para que
@@ -98,7 +100,9 @@ class TestEnqueue:
 
     @pytest.mark.asyncio
     async def test_enqueue_con_email_invalido_falla(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         with pytest.raises(InvalidEmailError):
@@ -115,7 +119,9 @@ class TestEnqueue:
 
     @pytest.mark.asyncio
     async def test_enqueue_si_redis_cae_no_falla_encolar(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         """Si el LPUSH a Redis falla, el outbox queda en BD y el cron lo recoge."""
         service = NotificationsService(async_session)
@@ -137,7 +143,9 @@ class TestEnqueue:
 class TestProcessOne:
     @pytest.mark.asyncio
     async def test_envia_email_y_marca_sent(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         ob = await service.enqueue_email(
@@ -147,9 +155,7 @@ class TestProcessOne:
         )
         # Patch sobre el alias ``smtp_send_email`` que el service importa
         # a nivel de modulo (``from ... import send_email as smtp_send_email``).
-        with patch.object(
-            svc_module, "smtp_send_email", new=AsyncMock(return_value=None)
-        ):
+        with patch.object(svc_module, "smtp_send_email", new=AsyncMock(return_value=None)):
             result = await service.process_one(ob.id)
         assert result["status"] == "sent"
         assert result["attempts"] == 0
@@ -162,7 +168,9 @@ class TestProcessOne:
 
     @pytest.mark.asyncio
     async def test_smtp_error_transitorio_aumenta_attempts(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         ob = await service.enqueue_email(
@@ -186,7 +194,9 @@ class TestProcessOne:
 
     @pytest.mark.asyncio
     async def test_smtp_permanent_error_marca_dead(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         ob = await service.enqueue_email(
@@ -209,7 +219,9 @@ class TestProcessOne:
 
     @pytest.mark.asyncio
     async def test_despues_3_fallos_marca_dead(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         ob = await service.enqueue_email(
@@ -236,7 +248,9 @@ class TestProcessOne:
 
     @pytest.mark.asyncio
     async def test_outbox_no_existente_retorna_missing(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         result = await service.process_one(uuid.uuid4())
@@ -244,7 +258,9 @@ class TestProcessOne:
 
     @pytest.mark.asyncio
     async def test_outbox_ya_sent_skip(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         ob = await service.enqueue_email(
@@ -266,7 +282,9 @@ class TestProcessOne:
 class TestRetryDeadAndMetrics:
     @pytest.mark.asyncio
     async def test_retry_dead_re_encola(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         # Crear 2 dead, 1 sent.
@@ -289,7 +307,9 @@ class TestRetryDeadAndMetrics:
 
     @pytest.mark.asyncio
     async def test_metrics_retorna_conteo_por_status(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         # 3 pending, 2 sent, 1 dead.

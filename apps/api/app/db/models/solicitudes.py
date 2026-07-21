@@ -8,6 +8,7 @@ Reglas de dominio:
 - REG-002: mecanico_box NO puede ser destino de una solicitud.
 - REG-003: principal NO puede ser origen de una solicitud.
 """
+
 import enum
 import uuid
 from datetime import datetime
@@ -45,9 +46,7 @@ class SolicitudRecarga(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     codigo: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     id_bodega_origen: Mapped[uuid.UUID] = mapped_column(
         GUID(),

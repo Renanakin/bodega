@@ -12,6 +12,7 @@ Endpoints internos (requieren auth):
 
 Endpoints publicos (sin auth, rate limited) viven en `public_router.py`.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -78,7 +79,9 @@ def _to_response(view) -> OCResponse:  # type: ignore[no-untyped-def]
 
 @router.get("", response_model=list[OCResponse])
 async def list_ordenes(
-    estado: str | None = Query(default=None, description="borrador, enviado_a_supervisor, aprobado, rechazado, comprado"),
+    estado: str | None = Query(
+        default=None, description="borrador, enviado_a_supervisor, aprobado, rechazado, comprado"
+    ),
     proveedor: str | None = Query(default=None, description="ILIKE sobre proveedor_nombre"),
     fecha_desde: date | None = Query(default=None, description="YYYY-MM-DD"),
     fecha_hasta: date | None = Query(default=None, description="YYYY-MM-DD"),

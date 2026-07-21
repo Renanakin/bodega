@@ -10,6 +10,7 @@ Reglas:
 
 Aplica a Fase 3; en Fases 4-5 se conectan inventory y transfers.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -111,9 +112,7 @@ class MovementEngine:
         result = await self._session.execute(stmt)
         stock = result.scalar_one_or_none()
 
-        previous_quantity: Decimal = (
-            stock.quantity if stock is not None else Decimal("0")
-        )
+        previous_quantity: Decimal = stock.quantity if stock is not None else Decimal("0")
         new_quantity = previous_quantity + delta
 
         # 3. Validar no oversell
@@ -202,4 +201,5 @@ def _utcnow_naive() -> object:
     el timezone. Para SQLite (tests) acepta naive o aware.
     """
     from datetime import UTC, datetime
+
     return datetime.now(UTC)

@@ -1,6 +1,7 @@
 """
 Tests unitarios para core/logging.py y core/middleware.py (Regla de Oro R8).
 """
+
 from __future__ import annotations
 
 import pytest

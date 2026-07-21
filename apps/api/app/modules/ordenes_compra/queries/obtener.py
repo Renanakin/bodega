@@ -1,9 +1,8 @@
 """Query: obtener orden de compra por ID o por token."""
+
 from __future__ import annotations
 
 import uuid
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     ExpiredApprovalTokenError,
@@ -15,13 +14,11 @@ from app.core.security import (
     verify_approval_token,
 )
 from app.modules.notificaciones.service import NotificacionesService
-
 from app.modules.ordenes_compra.actions._common import OrdenCompraView, require_oc, to_view
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def get_orden(
-    session: AsyncSession, oc_id: uuid.UUID
-) -> OrdenCompraView:
+async def get_orden(session: AsyncSession, oc_id: uuid.UUID) -> OrdenCompraView:
     """Obtiene una OC por ID. 404 si no existe."""
     oc = await require_oc(session, oc_id)
     return await to_view(session, oc)

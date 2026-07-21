@@ -6,6 +6,7 @@ Cubre:
 - Los nodos inactivos se ocultan por default.
 - Los conteos (subcategorias_count, productos_count) son correctos.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -133,7 +134,7 @@ class CategoriasArbolTestCase(unittest.TestCase):
 
     def test_categorias_arbol_oculta_inactivos_por_default(self) -> None:
         """Con solo_activos=true (default), los nodos is_active=False no aparecen."""
-        root_id = self.client.post(
+        self.client.post(
             "/api/v1/categories",
             json={"nombre": "Activo"},
             headers=self.headers,
@@ -144,9 +145,7 @@ class CategoriasArbolTestCase(unittest.TestCase):
             headers=self.headers,
         ).json()["id"]
         # Soft-delete "Inactivo".
-        del_resp = self.client.delete(
-            f"/api/v1/categories/{inactive_id}", headers=self.headers
-        )
+        del_resp = self.client.delete(f"/api/v1/categories/{inactive_id}", headers=self.headers)
         self.assertEqual(del_resp.status_code, 204, del_resp.text)
 
         # Default: solo_activos=True. Solo "Activo" aparece.

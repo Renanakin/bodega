@@ -10,8 +10,10 @@ WAL mode + busy_timeout permiten que el engine async (aiosqlite) y
 este legacy sync (sqlite3 stdlib) compartan el mismo archivo sin
 "database is locked" en operaciones concurrentes.
 """
+
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -116,10 +118,8 @@ class SQLiteDatabase:
         self._connection.close()
 
     def __del__(self) -> None:  # noqa: D401
-        try:
+        with contextlib.suppress(Exception):
             self.close()
-        except Exception:  # noqa: S110
-            pass
 
     def _apply_migrations(self) -> None:
         self._connection.execute(

@@ -30,18 +30,16 @@ Refinamientos Fase 9:
 - Header de respuesta ``X-Correlation-ID`` se setea SIEMPRE, incluso
   en errores 500 (verificado por test E2E).
 """
+
 from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import Awaitable, Callable
 
 import structlog
-from fastapi import Request, Response
-from starlette.requests import ClientDisconnect
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
-
 from app.core.logging import bind_request_context, clear_request_context, get_request_id
+from fastapi import Request, Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 log = structlog.get_logger(__name__)
 
@@ -95,7 +93,6 @@ class CorrelationIdMiddleware:
         # 2. Medir latencia
         start = time.perf_counter()
         status_code: int | None = None
-        error: BaseException | None = None
 
         # 3. Wrapper de send que intercepta el primer http.response.start
         # y agrega el header X-Correlation-ID. Tambien captura el
@@ -112,7 +109,8 @@ class CorrelationIdMiddleware:
                 raw_headers: list[tuple[bytes, bytes]] = list(message.get("headers", []))
                 # Filtrar el header existente (si viene del cliente) y agregar el nuestro.
                 filtered = [
-                    (k, v) for k, v in raw_headers
+                    (k, v)
+                    for k, v in raw_headers
                     if k.decode("latin-1").lower() != self.HEADER.lower()
                 ]
                 filtered.append((self.HEADER.encode("latin-1"), correlation_id.encode("latin-1")))
@@ -122,7 +120,6 @@ class CorrelationIdMiddleware:
         try:
             await self.app(scope, receive, send_with_correlation_id)
         except Exception as exc:
-            error = exc
             elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
             log.exception(
                 "request.failed",
@@ -184,7 +181,7 @@ def _client_ip(scope: Scope) -> str | None:
 # el ``ServerErrorMiddleware`` lo procesa.
 
 
-async def exception_handler_with_correlation_id(request: Request, exc: Exception) -> Response:
+async def exception_handler_with_correlation_id(_request: Request, _exc: Exception) -> Response:
     """Exception handler global que setea ``X-Correlation-ID`` en el response.
 
     Se registra para ``Exception`` (catch-all) en ``create_app`` via

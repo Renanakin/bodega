@@ -9,6 +9,7 @@ existente y se depreca gradualmente en Fases 4-5.
 Regla R4: el service no llama a db.execute ni db.query directamente.
 Toda la escritura de stock pasa por MovementEngine.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -109,10 +110,10 @@ class InventoryServiceAsync:
         sku: str | None = None,
     ) -> list[StockLevelView]:
         """Lista stock con JOIN a warehouses y products."""
-        stmt = select(StockLevel, Warehouse, Product).join(
-            Warehouse, StockLevel.warehouse_id == Warehouse.id
-        ).join(
-            Product, StockLevel.product_id == Product.id
+        stmt = (
+            select(StockLevel, Warehouse, Product)
+            .join(Warehouse, StockLevel.warehouse_id == Warehouse.id)
+            .join(Product, StockLevel.product_id == Product.id)
         )
 
         if warehouse_id is not None:

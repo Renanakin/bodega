@@ -11,6 +11,7 @@ Para validar la concurrencia REAL en SQLite se usa `asyncio.Lock` Python
 que simula el comportamiento de Postgres y verifica que el código está
 bien estructurado.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +38,8 @@ class TestConcurrentMovementsPostgres:
 
     @pytest.mark.asyncio
     async def test_50_parallel_in_movements_postgres(
-        self, postgres_required  # type: ignore[no-untyped-def]
+        self,
+        postgres_required,  # type: ignore[no-untyped-def]
     ) -> None:
         """50 entradas paralelas: stock final = 50 (Postgres)."""
         # Implementación análoga a la versión SQLite pero usando
@@ -47,7 +49,8 @@ class TestConcurrentMovementsPostgres:
 
     @pytest.mark.asyncio
     async def test_no_oversell_postgres(
-        self, postgres_required  # type: ignore[no-untyped-def]
+        self,
+        postgres_required,  # type: ignore[no-untyped-def]
     ) -> None:
         """80 salidas paralelas con stock=50: successes=50, stock=0, no negative."""
         pytest.skip("Implementación específica para Postgres; ver test_sequential_locking")
@@ -294,7 +297,8 @@ class TestConcurrentMovementsSqlite:
 
             # Verificar que se llamó log.info con "movement.applied"
             info_calls = [
-                call_args for call_args in mock_log.info.call_args_list
+                call_args
+                for call_args in mock_log.info.call_args_list
                 if call_args and call_args[0] and call_args[0][0] == "movement.applied"
             ]
             assert len(info_calls) == 1, f"Expected 1 movement.applied log, got {len(info_calls)}"

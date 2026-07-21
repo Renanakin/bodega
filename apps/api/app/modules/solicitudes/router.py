@@ -22,16 +22,12 @@ Reglas:
 - ADR-0004: el replenishment corre como cron Arq (ver apps/api/app/worker.py);
      este router expone el trigger manual.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from decimal import Decimal
 from typing import Any
-
-from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.inventory import StockLevel
 from app.db.models.products import Product
@@ -40,7 +36,6 @@ from app.db.session import get_session
 from app.modules.auth.dependencies import require_roles
 from app.modules.auth.router import get_current_user
 from app.modules.solicitudes.replenishment import (
-    ALTA_PRIORIDAD_UMBRAL,
     ReplenishmentEvaluator,
     _calcular_cantidad,
     _calcular_prioridad,
@@ -60,7 +55,9 @@ from app.modules.solicitudes.schemas import (
     TransferDerivedResponse,
 )
 from app.modules.solicitudes.service import SolicitudService
-
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -125,8 +122,8 @@ async def create_solicitud(
         id_bodega_origen=payload.bodega_origen_id,
         id_bodega_destino=payload.bodega_destino_id,
         lineas=[
-            {"id_producto": l.producto_id, "cantidad_solicitada": l.cantidad_solicitada}
-            for l in payload.lineas
+            {"id_producto": line.producto_id, "cantidad_solicitada": line.cantidad_solicitada}
+            for line in payload.lineas
         ],
         prioridad=payload.prioridad,
         notas=payload.notas,
@@ -233,7 +230,7 @@ async def get_derived_transfer(
 @router.post("/{solicitud_id}/approve", response_model=SolicitudResponse)
 async def approve_solicitud(
     solicitud_id: uuid.UUID,
-    payload: SolicitudAprobacion = SolicitudAprobacion(),
+    _payload: SolicitudAprobacion = SolicitudAprobacion(),
     current_user=Depends(require_roles("admin", "supervisor")),
     service: SolicitudService = Depends(get_solicitud_service),
 ) -> SolicitudResponse:
@@ -300,7 +297,7 @@ async def reject_solicitud(
 @router.post("/{solicitud_id}/cancel", response_model=SolicitudResponse)
 async def cancel_solicitud(
     solicitud_id: uuid.UUID,
-    payload: SolicitudCancelacion = SolicitudCancelacion(),
+    _payload: SolicitudCancelacion = SolicitudCancelacion(),
     current_user=Depends(require_roles("admin", "supervisor", "origin_operator")),
     service: SolicitudService = Depends(get_solicitud_service),
 ) -> SolicitudResponse:
@@ -320,15 +317,14 @@ async def auto_generar_solicitudes(
     bodega_id: uuid.UUID | None = Query(
         default=None,
         description=(
-            "Si se pasa, evalua solo esa bodega. Si no, evalua todas "
-            "las auxiliares activas."
+            "Si se pasa, evalua solo esa bodega. Si no, evalua todas las auxiliares activas."
         ),
     ),
     dry_run: bool = Query(
         default=False,
         description="Si True, evalua y reporta pero NO crea solicitudes.",
     ),
-    current_user=Depends(require_roles("admin", "supervisor")),
+    _current_user=Depends(require_roles("admin", "supervisor")),
     session: AsyncSession = Depends(get_session),
 ) -> ReplenishmentReportResponse:
     """Trigger manual del ReplenishmentEvaluator (Fase 4).
@@ -429,11 +425,7 @@ async def get_productos_bajo_minimo(
                 stock_maximo=stock.max_quantity,
                 cantidad_sugerida=_calcular_cantidad(stock),
                 # Mapeo explicito: 'alta' / 'normal' → "alta"/"normal" (no 'urgente' en v1).
-                prioridad=(
-                    "alta"
-                    if _calcular_prioridad(stock) == "alta"
-                    else "normal"
-                ),
+                prioridad=("alta" if _calcular_prioridad(stock) == "alta" else "normal"),
             )
         )
     return items

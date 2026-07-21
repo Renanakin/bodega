@@ -20,6 +20,7 @@ Ademas, valida:
 - La cantidad de warehouses creados es razonable (no se filtran
   warehouses duplicados).
 """
+
 from __future__ import annotations
 
 import re
@@ -27,21 +28,15 @@ import unittest
 from pathlib import Path
 
 # Valores permitidos por ADR-0002 + CheckConstraint del modelo.
-_VALID_WAREHOUSE_TYPES: frozenset[str] = frozenset(
-    {"principal", "auxiliar", "mecanico_box"}
-)
+_VALID_WAREHOUSE_TYPES: frozenset[str] = frozenset({"principal", "auxiliar", "mecanico_box"})
 # Valores deprecados que NO deben volver a aparecer.
-_DEPRECATED_WAREHOUSE_TYPES: frozenset[str] = frozenset(
-    {"central", "sucursal", ""}
-)
+_DEPRECATED_WAREHOUSE_TYPES: frozenset[str] = frozenset({"central", "sucursal", ""})
 
 _DEMO_PY = Path(__file__).resolve().parents[2] / "app" / "db" / "demo.py"
 
 # Captura ``warehouse_type="xxx"`` o ``warehouse_type='xxx'`` (y el
 # estilo ``warehouse_type=...`` como kwarg en WarehouseCreate(...))
-_KWARG_RE = re.compile(
-    r"""warehouse_type\s*=\s*(?P<quote>["'])(?P<value>[^"']+)(?P=quote)"""
-)
+_KWARG_RE = re.compile(r"""warehouse_type\s*=\s*(?P<quote>["'])(?P<value>[^"']+)(?P=quote)""")
 
 
 class DemoWarehouseTypesValidTestCase(unittest.TestCase):
@@ -110,9 +105,7 @@ class DemoWarehouseTypesValidTestCase(unittest.TestCase):
         """
         # Encuentra lineas con warehouse_type='mecanico_box'
         box_lines = [
-            i
-            for i, line in enumerate(self.source.splitlines(), start=1)
-            if "mecanico_box" in line
+            i for i, line in enumerate(self.source.splitlines(), start=1) if "mecanico_box" in line
         ]
         if not box_lines:
             self.skipTest(

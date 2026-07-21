@@ -12,16 +12,15 @@ Reglas:
 - R6: el cache de Jinja2 es por instancia (FileSystemLoader cachea
   internamente los templates; no hace falta memoizar).
 """
+
 from __future__ import annotations
 
 import re
 from functools import lru_cache
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-
 from app.core.logging import get_logger
-
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 log = get_logger(__name__)
 
@@ -103,13 +102,12 @@ def render_with_inline_css(
         log.debug("notifications.premailer_unavailable", fallback="style_block")
         return html
     try:
-        inlined = transform(
+        return transform(
             html,
             # Mantener los @media queries como style block (no inline).
             keep_style_tags=True,
             remove_classes=False,
         )
-        return inlined
     except Exception as e:  # noqa: BLE001
         log.warning("notifications.premailer_failed", error=str(e))
         return html

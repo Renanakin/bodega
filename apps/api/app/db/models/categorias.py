@@ -1,4 +1,5 @@
 """Modelo SQLAlchemy para categorias de productos."""
+
 import uuid
 
 from app.db.base import GUID, Base, created_at_column, updated_at_column
@@ -11,9 +12,7 @@ class Category(Base):
 
     __tablename__ = "categories"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     nombre: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     descripcion: Mapped[str] = mapped_column(String(500), nullable=True)
     parent_id: Mapped[uuid.UUID] = mapped_column(

@@ -5,6 +5,7 @@ Reglas de Oro aplicadas:
 - R1: nunca usa secretos hardcoded; recibe todo via Settings.
 - R6: el código de hash está parametrizado por configuración.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -22,6 +23,7 @@ log = get_logger(__name__)
 
 
 # --- Password hashing (R1, R6) ---
+
 
 def hash_password(password: str, salt: str | None = None) -> str:
     """Hashea una contraseña con PBKDF2-HMAC-SHA256.
@@ -60,6 +62,7 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 # --- Tokens de sesión (R1) ---
 
+
 def issue_session_token() -> str:
     """Genera un token de sesión criptográficamente seguro (URL-safe)."""
     return secrets.token_urlsafe(32)
@@ -72,6 +75,7 @@ def session_expiration() -> Any:
 
 
 # --- Tokens de aprobación (ADR-0006) ---
+
 
 class ApprovalTokenError(Exception):
     """Error al validar un token de aprobación."""

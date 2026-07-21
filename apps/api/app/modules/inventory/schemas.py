@@ -76,6 +76,7 @@ class InventorySummaryResponse(BaseModel):
 
 # --- Fase 8: parametrizacion por bodega x producto ---
 
+
 class StockParametersUpsert(BaseModel):
     """Payload para ``PUT /api/v1/inventory/parametros/{producto_id}/{bodega_id}`` (Fase 8).
 

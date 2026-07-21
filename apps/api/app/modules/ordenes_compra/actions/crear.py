@@ -4,13 +4,11 @@ Accion: crear orden de compra (estado BORRADOR).
 Crea OC con lineas, valida bodega principal, supervisor activo y
 productos existentes. Genera codigo OC-NNNN secuencial.
 """
+
 from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     InvalidOrdenCompraStatusError,
@@ -23,9 +21,9 @@ from app.db.models.ordenes_compra import DetalleOrdenCompra, OrdenCompra, OrdenC
 from app.db.models.products import Product
 from app.db.models.supervisores import Supervisor
 from app.db.models.warehouses import Warehouse
-
 from app.modules.ordenes_compra.actions._common import OrdenCompraView, to_view
-
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 
@@ -80,7 +78,7 @@ async def create_orden(
 
     # Validar productos y calcular total en una sola query (evita N+1).
     # Antes: 1 query por linea -> N+1. Ahora: 1 query con WHERE id IN (...).
-    product_ids = [l["id_producto"] for l in lineas]
+    product_ids = [line["id_producto"] for line in lineas]
     stmt_productos = select(Product).where(Product.id.in_(product_ids))
     productos = (await session.execute(stmt_productos)).scalars().all()
     productos_by_id = {p.id: p for p in productos}

@@ -13,6 +13,7 @@ Cubre:
 
 Patron: unittest.IsolatedAsyncioTestCase con AsyncEngine SQLite + StaticPool.
 """
+
 from __future__ import annotations
 
 import os
@@ -23,11 +24,14 @@ from uuid import uuid4
 # Configurar el AsyncEngine antes de importar la app
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ENVIRONMENT", "development")
-os.environ.setdefault(
-    "JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX"
-)
+os.environ.setdefault("JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
+from app.core.config import reset_settings_cache  # noqa: E402
+from app.core.rate_limit import reset_rate_limiter_for_tests  # noqa: E402
+from app.db import models  # noqa: E402, F401
+from app.db.base import Base  # noqa: E402
+from app.modules.ordenes_compra.service import OrdenCompraService  # noqa: E402
 from sqlalchemy import event, select  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
@@ -36,13 +40,6 @@ from sqlalchemy.ext.asyncio import (  # noqa: E402
     create_async_engine,
 )
 from sqlalchemy.pool import StaticPool  # noqa: E402
-
-from app.core.config import reset_settings_cache  # noqa: E402
-from app.core.rate_limit import reset_rate_limiter_for_tests  # noqa: E402
-from app.db import models  # noqa: E402, F401
-from app.db.base import Base  # noqa: E402
-from app.modules.ordenes_compra.service import OrdenCompraService  # noqa: E402
-
 
 reset_settings_cache()
 
@@ -84,6 +81,7 @@ class OrdenCompraTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.engine.dispose()
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
         reset_rate_limiter_for_tests()
 
@@ -97,28 +95,40 @@ class OrdenCompraTestCase(unittest.IsolatedAsyncioTestCase):
         self.p1_id = uuid4()
         self.p2_id = uuid4()
         async with self.session_factory() as s:
-            s.add_all([
-                Warehouse(
-                    id=self.principal_id, code="PRINCIPAL",
-                    name="Bodega Principal", warehouse_type="principal",
-                    is_active=True,
-                ),
-                Supervisor(
-                    id=self.supervisor_id, nombre="Sup Test",
-                    email="supervisor.test@bodega.example", activo=True,
-                ),
-                Product(
-                    id=self.p1_id, sku="SKU-OC-001", name="Producto OC 1",
-                    unit="unidad", is_active=True,
-                ),
-                Product(
-                    id=self.p2_id, sku="SKU-OC-002", name="Producto OC 2",
-                    unit="unidad", is_active=True,
-                ),
-            ])
+            s.add_all(
+                [
+                    Warehouse(
+                        id=self.principal_id,
+                        code="PRINCIPAL",
+                        name="Bodega Principal",
+                        warehouse_type="principal",
+                        is_active=True,
+                    ),
+                    Supervisor(
+                        id=self.supervisor_id,
+                        nombre="Sup Test",
+                        email="supervisor.test@bodega.example",
+                        activo=True,
+                    ),
+                    Product(
+                        id=self.p1_id,
+                        sku="SKU-OC-001",
+                        name="Producto OC 1",
+                        unit="unidad",
+                        is_active=True,
+                    ),
+                    Product(
+                        id=self.p2_id,
+                        sku="SKU-OC-002",
+                        name="Producto OC 2",
+                        unit="unidad",
+                        is_active=True,
+                    ),
+                ]
+            )
             await s.commit()
 
-    async def _crear_oc(self) -> "OrdenCompraView":  # type: ignore[name-defined]  # noqa: F821
+    async def _crear_oc(self) -> OrdenCompraView:  # type: ignore[name-defined]  # noqa: F821
         async with self.session_factory() as s:
             service = OrdenCompraService(s)
             view = await service.create_orden(
@@ -168,6 +178,7 @@ class OrdenCompraTestCase(unittest.IsolatedAsyncioTestCase):
 
         # Intentar update: debe fallar
         from app.core.errors import InvalidOrdenCompraStatusError
+
         async with self.session_factory() as s:
             service = OrdenCompraService(s)
             with self.assertRaises(InvalidOrdenCompraStatusError):
@@ -185,6 +196,7 @@ class OrdenCompraTestCase(unittest.IsolatedAsyncioTestCase):
 
         # Verificar email_outbox
         from app.db.models.ordenes_compra import EmailOutbox
+
         async with self.session_factory() as s:
             stmt = select(EmailOutbox)
             outbox_rows = list((await s.execute(stmt)).scalars().all())
@@ -203,6 +215,7 @@ class OrdenCompraTestCase(unittest.IsolatedAsyncioTestCase):
             await s.commit()
 
         from app.core.errors import InvalidOrdenCompraStatusError
+
         async with self.session_factory() as s:
             service = OrdenCompraService(s)
             with self.assertRaises(InvalidOrdenCompraStatusError):
@@ -244,6 +257,7 @@ class OrdenCompraTestCase(unittest.IsolatedAsyncioTestCase):
     # 7. Token invalido retorna 401
     async def test_token_invalido_retorna_401(self) -> None:
         from app.core.errors import InvalidApprovalTokenError
+
         async with self.session_factory() as s:
             service = OrdenCompraService(s)
             with self.assertRaises(InvalidApprovalTokenError):
@@ -273,26 +287,36 @@ class OrdenCompraTokenExpiradoTestCase(unittest.IsolatedAsyncioTestCase):
         self.supervisor_id = uuid4()
         self.p1_id = uuid4()
         async with self.session_factory() as s:
-            s.add_all([
-                Warehouse(
-                    id=self.principal_id, code="PRINCIPAL",
-                    name="Bodega Principal", warehouse_type="principal",
-                    is_active=True,
-                ),
-                Supervisor(
-                    id=self.supervisor_id, nombre="Sup",
-                    email="exp@bodega.example", activo=True,
-                ),
-                Product(
-                    id=self.p1_id, sku="SKU-EXP", name="P",
-                    unit="unidad", is_active=True,
-                ),
-            ])
+            s.add_all(
+                [
+                    Warehouse(
+                        id=self.principal_id,
+                        code="PRINCIPAL",
+                        name="Bodega Principal",
+                        warehouse_type="principal",
+                        is_active=True,
+                    ),
+                    Supervisor(
+                        id=self.supervisor_id,
+                        nombre="Sup",
+                        email="exp@bodega.example",
+                        activo=True,
+                    ),
+                    Product(
+                        id=self.p1_id,
+                        sku="SKU-EXP",
+                        name="P",
+                        unit="unidad",
+                        is_active=True,
+                    ),
+                ]
+            )
             await s.commit()
 
     async def asyncTearDown(self) -> None:
         await self.engine.dispose()
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
         reset_rate_limiter_for_tests()
 
@@ -303,7 +327,7 @@ class OrdenCompraTokenExpiradoTestCase(unittest.IsolatedAsyncioTestCase):
         # Crear OC
         async with self.session_factory() as s:
             service = OrdenCompraService(s)
-            view = await service.create_orden(
+            await service.create_orden(
                 id_bodega_principal=self.principal_id,
                 id_supervisor=self.supervisor_id,
                 proveedor_nombre="X",
@@ -320,6 +344,7 @@ class OrdenCompraTokenExpiradoTestCase(unittest.IsolatedAsyncioTestCase):
         # Mockear verify_approval_token para que lance ApprovalTokenExpiredError
         # (simula un token firmado correctamente pero con timestamp > max_age).
         from unittest.mock import patch
+
         from app.core.security import ApprovalTokenExpiredError
 
         def fake_verify(token):  # type: ignore[no-untyped-def]
@@ -340,6 +365,7 @@ class OrdenCompraRateLimitTestCase(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self) -> None:
         from app.core.rate_limit import get_rate_limiter
+
         reset_rate_limiter_for_tests()
         self.limiter = get_rate_limiter()
 
@@ -348,7 +374,7 @@ class OrdenCompraRateLimitTestCase(unittest.IsolatedAsyncioTestCase):
         ip = "192.168.1.42"
         for i in range(5):
             r = self.limiter.check(ip, "public_oc", max_requests=5, window_seconds=60)
-            self.assertTrue(r.allowed, f"req {i+1} deberia pasar")
+            self.assertTrue(r.allowed, f"req {i + 1} deberia pasar")
         # La 6ta debe fallar
         r = self.limiter.check(ip, "public_oc", max_requests=5, window_seconds=60)
         self.assertFalse(r.allowed)
@@ -356,7 +382,7 @@ class OrdenCompraRateLimitTestCase(unittest.IsolatedAsyncioTestCase):
 
     def test_rate_limiting_por_ip(self) -> None:
         """Distintas IPs no comparten cupo."""
-        for i in range(5):
+        for _i in range(5):
             r1 = self.limiter.check("1.1.1.1", "public_oc", max_requests=5, window_seconds=60)
             self.assertTrue(r1.allowed)
             r2 = self.limiter.check("2.2.2.2", "public_oc", max_requests=5, window_seconds=60)

@@ -5,17 +5,14 @@ Las queries son agregaciones SQL (no iteran filas en Python) para
 mantener latencia < 100ms con hasta ~100k stock_levels y ~500k
 inventory_movements (dimensionamiento ADR-0001).
 """
+
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import case, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.logging import get_logger
-from app.db.models.inventory import InventoryMovement, MovementType, StockLevel
+from app.db.models.inventory import InventoryMovement, StockLevel
 from app.db.models.products import Product
 from app.db.models.solicitudes import SolicitudEstado, SolicitudRecarga
 from app.db.models.warehouses import Warehouse
@@ -24,6 +21,8 @@ from app.modules.reports.schemas import (
     TopProducto,
     ValorPorBodega,
 )
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 
@@ -84,7 +83,9 @@ class ReportService:
             SolicitudRecarga.estado, func.count(SolicitudRecarga.id)
         ).group_by(SolicitudRecarga.estado)
         por_estado_rows = (await self._session.execute(por_estado_query)).all()
-        solicitudes_por_estado = {str(estado.value): int(count) for estado, count in por_estado_rows}
+        solicitudes_por_estado = {
+            str(estado.value): int(count) for estado, count in por_estado_rows
+        }
 
         # -------------------------------------------------------------------
         # 5) Top productos mas movidos: sum |quantity| por producto en
@@ -131,9 +132,7 @@ class ReportService:
 
     # ----------------------------------------------------------- helpers
 
-    async def _mas_menos_movidos(
-        self, top_n: int, asc: bool
-    ) -> list[TopProducto]:
+    async def _mas_menos_movidos(self, top_n: int, asc: bool) -> list[TopProducto]:
         """Ranking de productos por ``sum |quantity|`` de movimientos.
 
         Args:
@@ -150,15 +149,11 @@ class ReportService:
                 InventoryMovement.product_id,
                 Product.sku,
                 Product.name,
-                func.coalesce(func.sum(func.abs(InventoryMovement.quantity)), 0).label(
-                    "unidades"
-                ),
+                func.coalesce(func.sum(func.abs(InventoryMovement.quantity)), 0).label("unidades"),
                 func.count(InventoryMovement.id).label("movs"),
             )
             .join(Product, Product.id == InventoryMovement.product_id)
-            .group_by(
-                InventoryMovement.product_id, Product.sku, Product.name
-            )
+            .group_by(InventoryMovement.product_id, Product.sku, Product.name)
             .order_by(
                 func.coalesce(func.sum(func.abs(InventoryMovement.quantity)), 0).asc()
                 if asc
@@ -187,22 +182,16 @@ class ReportService:
                 Warehouse.name,
                 Warehouse.warehouse_type,
                 func.coalesce(func.sum(StockLevel.quantity), 0).label("unidades"),
-                func.coalesce(
-                    func.sum(StockLevel.quantity * Product.precio_costo), 0
-                ).label("valor"),
+                func.coalesce(func.sum(StockLevel.quantity * Product.precio_costo), 0).label(
+                    "valor"
+                ),
             )
             .join(StockLevel, StockLevel.warehouse_id == Warehouse.id)
             .join(Product, Product.id == StockLevel.product_id)
             .where(Warehouse.is_active == True)  # noqa: E712
             .where(Product.is_active == True)  # noqa: E712
-            .group_by(
-                Warehouse.id, Warehouse.code, Warehouse.name, Warehouse.warehouse_type
-            )
-            .order_by(
-                func.coalesce(
-                    func.sum(StockLevel.quantity * Product.precio_costo), 0
-                ).desc()
-            )
+            .group_by(Warehouse.id, Warehouse.code, Warehouse.name, Warehouse.warehouse_type)
+            .order_by(func.coalesce(func.sum(StockLevel.quantity * Product.precio_costo), 0).desc())
         )
         rows = (await self._session.execute(stmt)).all()
         return [

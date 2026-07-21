@@ -10,14 +10,11 @@ Reglas:
 - Soft delete via ``activo=False`` (no se borra la fila) para preservar el
   historial de Ordenes de Compra que lo referencian.
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import Any
-
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     DuplicateProveedorNombreError,
@@ -26,6 +23,9 @@ from app.core.errors import (
 )
 from app.core.logging import get_logger
 from app.db.models.proveedores import Proveedor
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 
@@ -34,9 +34,7 @@ class ProveedorService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def list_proveedores(
-        self, solo_activos: bool | None = None
-    ) -> list[Proveedor]:
+    async def list_proveedores(self, solo_activos: bool | None = None) -> list[Proveedor]:
         """Lista proveedores ordenados por nombre.
 
         Args:
@@ -79,9 +77,7 @@ class ProveedorService:
         rut = data.get("rut")
         if rut:
             existing_rut = (
-                await self._session.execute(
-                    select(Proveedor).where(Proveedor.rut == rut)
-                )
+                await self._session.execute(select(Proveedor).where(Proveedor.rut == rut))
             ).scalar_one_or_none()
             if existing_rut is not None:
                 raise DuplicateProveedorRutError(rut)
@@ -110,9 +106,7 @@ class ProveedorService:
         log.info("proveedor.created", proveedor_id=str(p.id), nombre=nombre_norm)
         return p
 
-    async def update_proveedor(
-        self, proveedor_id: uuid.UUID, data: dict[str, Any]
-    ) -> Proveedor:
+    async def update_proveedor(self, proveedor_id: uuid.UUID, data: dict[str, Any]) -> Proveedor:
         """Actualiza campos parciales (PATCH)."""
         p = await self.get_proveedor(proveedor_id)
 
@@ -133,9 +127,7 @@ class ProveedorService:
         if "rut" in data and data["rut"] is not None:
             new_rut = data["rut"]
             existing_rut = (
-                await self._session.execute(
-                    select(Proveedor).where(Proveedor.rut == new_rut)
-                )
+                await self._session.execute(select(Proveedor).where(Proveedor.rut == new_rut))
             ).scalar_one_or_none()
             if existing_rut is not None and existing_rut.id != proveedor_id:
                 raise DuplicateProveedorRutError(new_rut)

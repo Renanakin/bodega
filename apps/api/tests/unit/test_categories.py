@@ -11,14 +11,15 @@ Cubre:
 - Referencia circular directa y transitiva → 409.
 - Jerarquía de 3 niveles funciona.
 """
+
 from __future__ import annotations
 
 import unittest
 from uuid import uuid4
 
+from app.db.session import utcnow
 from app.main import create_app
 from app.modules.auth.security import hash_password
-from app.db.session import utcnow
 from fastapi.testclient import TestClient
 
 
@@ -127,9 +128,7 @@ class CategoriesTestCase(unittest.TestCase):
         self.assertEqual(children_of_root[0]["id"], mid_id)
 
         # Detalle del nivel 3
-        leaf_detail = self.client.get(
-            f"/api/v1/categories/{leaf_id}", headers=self.headers
-        ).json()
+        leaf_detail = self.client.get(f"/api/v1/categories/{leaf_id}", headers=self.headers).json()
         self.assertEqual(leaf_detail["parent_id"], mid_id)
 
     def test_patch_partial(self) -> None:
@@ -159,15 +158,11 @@ class CategoriesTestCase(unittest.TestCase):
             headers=self.headers,
         ).json()["id"]
 
-        delete_resp = self.client.delete(
-            f"/api/v1/categories/{cat_id}", headers=self.headers
-        )
+        delete_resp = self.client.delete(f"/api/v1/categories/{cat_id}", headers=self.headers)
         self.assertEqual(delete_resp.status_code, 204)
 
         # Sigue existiendo la fila pero is_active=False
-        detail = self.client.get(
-            f"/api/v1/categories/{cat_id}", headers=self.headers
-        )
+        detail = self.client.get(f"/api/v1/categories/{cat_id}", headers=self.headers)
         self.assertEqual(detail.status_code, 200)
         self.assertFalse(detail.json()["is_active"])
 
@@ -192,9 +187,7 @@ class CategoriesTestCase(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(resp.status_code, 409)
-        self.assertEqual(
-            resp.json()["detail"]["code"], "category_circular_reference"
-        )
+        self.assertEqual(resp.json()["detail"]["code"], "category_circular_reference")
 
     def test_transitive_circular_reference(self) -> None:
         # A → B → C; intentar hacer A.parent = C crearía ciclo A → C → B → A
@@ -218,14 +211,10 @@ class CategoriesTestCase(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(resp.status_code, 409)
-        self.assertEqual(
-            resp.json()["detail"]["code"], "category_circular_reference"
-        )
+        self.assertEqual(resp.json()["detail"]["code"], "category_circular_reference")
 
     def test_category_not_found(self) -> None:
-        resp = self.client.get(
-            f"/api/v1/categories/{uuid4()}", headers=self.headers
-        )
+        resp = self.client.get(f"/api/v1/categories/{uuid4()}", headers=self.headers)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["detail"]["code"], "category_not_found")
 

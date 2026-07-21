@@ -1,25 +1,22 @@
 """Tests del workflow de OrdenCompra + approval token (Fase 8)."""
+
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.errors import (
     InvalidApprovalTokenError,
     InvalidOrdenCompraStatusError,
     OrdenCompraNotFoundError,
 )
-from app.core.security import issue_approval_token
-from app.db.models.ordenes_compra import EmailOutbox, OrdenCompraEstado
+from app.db.models.ordenes_compra import EmailOutbox
 from app.db.models.products import Product
 from app.db.models.supervisores import Supervisor
 from app.db.models.warehouses import Warehouse
 from app.modules.ordenes_compra.service import OrdenCompraService
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.integration
 
@@ -27,7 +24,9 @@ pytestmark = pytest.mark.integration
 class TestOrdenCompraWorkflow:
     @pytest.mark.asyncio
     async def test_full_workflow(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(id=uuid.uuid4(), code="W-OC", name="W", warehouse_type="principal")
         sup = Supervisor(id=uuid.uuid4(), nombre="S", email="s@bodega.example", activo=True)
@@ -40,7 +39,13 @@ class TestOrdenCompraWorkflow:
             id_bodega_principal=wh.id,
             id_supervisor=sup.id,
             proveedor_nombre="Proveedor Test",
-            lineas=[{"id_producto": p.id, "cantidad_pedida": Decimal("5"), "costo_unitario_pactado": Decimal("100")}],
+            lineas=[
+                {
+                    "id_producto": p.id,
+                    "cantidad_pedida": Decimal("5"),
+                    "costo_unitario_pactado": Decimal("100"),
+                }
+            ],
         )
         assert view.codigo.startswith("OC-")
         assert view.estado == "borrador"
@@ -53,6 +58,7 @@ class TestOrdenCompraWorkflow:
 
         # Verificar que se encolo el email
         from sqlalchemy import select
+
         outbox = (await async_session.execute(select(EmailOutbox))).scalars().all()
         assert any(o.to_email == "s@bodega.example" for o in outbox)
 
@@ -63,7 +69,9 @@ class TestOrdenCompraWorkflow:
 
     @pytest.mark.asyncio
     async def test_reject_via_token(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(id=uuid.uuid4(), code="W-R", name="W", warehouse_type="principal")
         sup = Supervisor(id=uuid.uuid4(), nombre="S", email="r@bodega.example", activo=True)
@@ -76,7 +84,13 @@ class TestOrdenCompraWorkflow:
             id_bodega_principal=wh.id,
             id_supervisor=sup.id,
             proveedor_nombre="X",
-            lineas=[{"id_producto": p.id, "cantidad_pedida": Decimal("1"), "costo_unitario_pactado": Decimal("10")}],
+            lineas=[
+                {
+                    "id_producto": p.id,
+                    "cantidad_pedida": Decimal("1"),
+                    "costo_unitario_pactado": Decimal("10"),
+                }
+            ],
         )
         _, token = await service.enviar_a_supervisor(view.id)
         view = await service.aprobar_con_token(token, "reject", motivo="Sin presupuesto")
@@ -85,7 +99,9 @@ class TestOrdenCompraWorkflow:
 
     @pytest.mark.asyncio
     async def test_invalid_token_rejected(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = OrdenCompraService(async_session)
         with pytest.raises(InvalidApprovalTokenError):
@@ -93,7 +109,9 @@ class TestOrdenCompraWorkflow:
 
     @pytest.mark.asyncio
     async def test_oc_not_found(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = OrdenCompraService(async_session)
         with pytest.raises(OrdenCompraNotFoundError):
@@ -101,7 +119,9 @@ class TestOrdenCompraWorkflow:
 
     @pytest.mark.asyncio
     async def test_cannot_send_non_draft_oc(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(id=uuid.uuid4(), code="W-X", name="W", warehouse_type="principal")
         sup = Supervisor(id=uuid.uuid4(), nombre="S", email="x@bodega.example", activo=True)
@@ -114,7 +134,13 @@ class TestOrdenCompraWorkflow:
             id_bodega_principal=wh.id,
             id_supervisor=sup.id,
             proveedor_nombre="X",
-            lineas=[{"id_producto": p.id, "cantidad_pedida": Decimal("1"), "costo_unitario_pactado": Decimal("1")}],
+            lineas=[
+                {
+                    "id_producto": p.id,
+                    "cantidad_pedida": Decimal("1"),
+                    "costo_unitario_pactado": Decimal("1"),
+                }
+            ],
         )
         # Enviar primera vez (funciona)
         await service.enviar_a_supervisor(view.id)

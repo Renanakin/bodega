@@ -6,6 +6,7 @@ Aplica las reglas:
 - R6: pool con `pool_pre_ping=True` para detectar conexiones muertas.
 - R7: timeout 30s en queries lentas para no colgar el event loop.
 """
+
 from __future__ import annotations
 
 from app.core.config import get_settings
@@ -53,6 +54,7 @@ async def ping_postgres(engine: AsyncEngine) -> bool:
     """Ping al Postgres. Retorna True si responde, False si no."""
     try:
         from sqlalchemy import text
+
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         return True

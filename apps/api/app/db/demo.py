@@ -173,6 +173,7 @@ def reset_demo_database(db_path: str | Path | None = None) -> Path:
 
 if __name__ == "__main__":
     from app.core.logging import configure_logging, get_logger
+
     configure_logging()
     log = get_logger(__name__)
     path = reset_demo_database()

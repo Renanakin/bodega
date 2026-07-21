@@ -21,6 +21,7 @@ Reglas:
 - Si la BD no soporta ``FOR UPDATE`` (SQLite) se hace fallback a
   ``BEGIN IMMEDIATE`` y se loguea un warning (una sola vez por proceso).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -47,8 +48,6 @@ from app.modules.warehouses.repository import WarehouseRepository
 # Re-exports del motor async para callers que ya usan AsyncSession.
 from app.shared.movement_engine import (  # noqa: F401
     MovementEngine as AsyncMovementEngine,
-    MovementRequest as AsyncMovementRequest,
-    MovementResult as AsyncMovementResult,
 )
 
 if TYPE_CHECKING:
@@ -58,9 +57,7 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-_VALID_MOVEMENT_TYPES: frozenset[str] = frozenset(
-    {"in", "out", "adjustment_in", "adjustment_out"}
-)
+_VALID_MOVEMENT_TYPES: frozenset[str] = frozenset({"in", "out", "adjustment_in", "adjustment_out"})
 
 
 @dataclass(slots=True)
@@ -102,7 +99,7 @@ class MovementEngine:
         self,
         warehouse_id: uuid.UUID,
         product_id: uuid.UUID,
-        movement_type: "MovementType",
+        movement_type: MovementType,
         quantity: Decimal,
         reference_type: str | None = None,
         reference_id: str | None = None,
@@ -157,9 +154,7 @@ class MovementEngine:
 
             # 3. Stock actual (tambien bajo el lock)
             current = self._get_stock_level(warehouse_id, product_id)
-            previous_quantity: Decimal = (
-                current.quantity if current is not None else Decimal("0")
-            )
+            previous_quantity: Decimal = current.quantity if current is not None else Decimal("0")
             delta = self._compute_delta(movement_type, quantity)
             new_quantity = previous_quantity + delta
 
@@ -290,9 +285,7 @@ class MovementEngine:
             quantity=Decimal(str(row["quantity"])),
             min_quantity=Decimal(str(row["min_quantity"])),
             max_quantity=(
-                Decimal(str(row["max_quantity"]))
-                if row["max_quantity"] is not None
-                else None
+                Decimal(str(row["max_quantity"])) if row["max_quantity"] is not None else None
             ),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
@@ -328,7 +321,7 @@ class MovementEngine:
         return self._db.begin_immediate_transaction()
 
     @staticmethod
-    def _compute_delta(movement_type: "MovementType", quantity: Decimal) -> Decimal:
+    def _compute_delta(movement_type: MovementType, quantity: Decimal) -> Decimal:
         """Delta (positivo = entrada, negativo = salida)."""
         if movement_type.value in ("in", "adjustment_in"):
             return quantity

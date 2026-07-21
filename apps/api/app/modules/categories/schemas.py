@@ -4,6 +4,7 @@ Schemas Pydantic para categorías (Fase 2).
 Capa: API (entrada/salida HTTP). Validación estructural via Pydantic.
 Reglas de negocio viven en ``CategoryService``.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -90,7 +91,7 @@ class CategoryNode(BaseModel):
     subcategorias_count: int = 0
     productos_count: int = 0
     # Hijos recursivos.
-    children: list["CategoryNode"] = []
+    children: list[CategoryNode] = []
 
 
 # Habilita la recursion Pydantic (CategoryNode.children -> CategoryNode).

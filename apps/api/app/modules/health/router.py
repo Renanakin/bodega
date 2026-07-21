@@ -21,6 +21,7 @@ Notas Fase 9:
   un heartbeat con TTL). Si hay >= 1 key, hay >= 1 worker vivo.
   Si Redis no responde, retorna ``status=skipped`` igual que arriba.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +30,7 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.db.session import detect_backend, get_session_factory, ping_database
+from app.db.session import detect_backend, ping_database
 from fastapi import APIRouter, Response, status
 
 log = get_logger(__name__)
@@ -67,7 +68,7 @@ async def _check_db() -> dict[str, Any]:
             "backend": backend,
             "error": "ping_database returned False",
         }
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {
             "status": "down",
             "backend": backend,
@@ -107,7 +108,7 @@ async def _check_redis() -> dict[str, str]:
             await client.aclose()
         elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
         return {"status": "ok", "latency_ms": str(elapsed_ms)}
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"status": "down", "error": "timeout (2s) en PING"}
     except Exception as e:  # noqa: BLE001
         return {"status": "down", "error": str(e)[:200]}
@@ -155,7 +156,7 @@ async def _check_worker() -> dict[str, Any]:
             "active_workers": str(active_workers),
             "latency_ms": str(elapsed_ms),
         }
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"status": "down", "error": "timeout (2s) en SCAN"}
     except Exception as e:  # noqa: BLE001
         return {"status": "down", "error": str(e)[:200]}

@@ -6,6 +6,7 @@ Reglas aplicadas:
 - R4: ningún modelo aquí; solo la base y mixins.
 - R5: nombres autoexplicativos; cada mixin tiene un solo propósito.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -34,6 +35,7 @@ class Base(DeclarativeBase):
 
 
 # --- Tipos personalizados ---
+
 
 class GUID(TypeDecorator):
     """Tipo UUID portable: usa UUID nativo en Postgres, TEXT(36) en SQLite.

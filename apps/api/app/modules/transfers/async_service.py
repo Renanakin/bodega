@@ -6,6 +6,7 @@ Versión async del TransferService legacy. Las operaciones de stock
 La versión sync (service.py) se mantiene por compat hasta Fase 5
 cuando se introduzca SolicitudService que reemplazará Transfer.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -74,6 +75,7 @@ class TransferServiceAsync:
         """Crea una solicitud de transferencia (estado: requested)."""
         if payload.from_warehouse_id == payload.to_warehouse_id:
             from app.core.errors import InvalidTransferError
+
             raise InvalidTransferError()
 
         # Validar warehouse y product existen
@@ -120,9 +122,7 @@ class TransferServiceAsync:
         )
         return transfer
 
-    async def dispatch_transfer(
-        self, transfer_id: uuid.UUID, notes: str | None = None
-    ) -> Transfer:
+    async def dispatch_transfer(self, transfer_id: uuid.UUID, notes: str | None = None) -> Transfer:
         """Despacha la transferencia (status: approved → dispatched).
 
         Usa MovementEngine para descontar stock de la bodega origen.
@@ -242,4 +242,5 @@ class TransferServiceAsync:
 
 def _utcnow() -> datetime:
     from datetime import UTC, datetime
+
     return datetime.now(UTC)

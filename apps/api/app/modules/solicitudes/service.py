@@ -16,44 +16,57 @@ API publica (delegada a actions/queries):
       list_solicitudes, get_solicitud,
       get_distribucion_multibodega, get_derived_transfer.
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.modules.notificaciones.service import NotificacionesService
 from app.modules.solicitudes.actions._common import SolicitudView
 from app.modules.solicitudes.actions.aprobar import (
     approve as _approve,
+)
+from app.modules.solicitudes.actions.aprobar import (
     approve_solicitud as _approve_solicitud,
 )
 from app.modules.solicitudes.actions.cancelar import (
     cancel as _cancel,
+)
+from app.modules.solicitudes.actions.cancelar import (
     cancel_solicitud as _cancel_solicitud,
 )
 from app.modules.solicitudes.actions.crear import (
     create as _create,
+)
+from app.modules.solicitudes.actions.crear import (
     create_solicitud as _create_solicitud,
 )
 from app.modules.solicitudes.actions.despachar import (
     dispatch as _dispatch,
-    dispatch_solicitud as _dispatch_solicitud,
 )
-from app.modules.solicitudes.actions.recibir import (
-    receive as _receive,
-    receive_solicitud as _receive_solicitud,
+from app.modules.solicitudes.actions.despachar import (
+    dispatch_solicitud as _dispatch_solicitud,
 )
 from app.modules.solicitudes.actions.rechazar import (
     reject as _reject,
+)
+from app.modules.solicitudes.actions.rechazar import (
     reject_solicitud as _reject_solicitud,
+)
+from app.modules.solicitudes.actions.recibir import (
+    receive as _receive,
+)
+from app.modules.solicitudes.actions.recibir import (
+    receive_solicitud as _receive_solicitud,
 )
 from app.modules.solicitudes.queries.distribucion import (
     get_distribucion_multibodega as _get_distribucion_multibodega,
 )
 from app.modules.solicitudes.queries.listar import (
     list_solicitudes as _list_solicitudes,
+)
+from app.modules.solicitudes.queries.listar import (
     list_with_filters as _list_with_filters,
 )
 from app.modules.solicitudes.queries.obtener import get_solicitud as _get_solicitud
@@ -62,7 +75,7 @@ from app.modules.solicitudes.queries.transfers import (
 )
 from app.modules.solicitudes.repository import SolicitudRepository
 from app.shared.movement_engine import MovementEngine
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.solicitudes.schemas import (
@@ -108,7 +121,9 @@ class SolicitudService:
         user_id: uuid.UUID | None = None,
     ) -> SolicitudView:
         return await _create_solicitud(
-            self._session, self._repo, self._notif,
+            self._session,
+            self._repo,
+            self._notif,
             id_bodega_origen=id_bodega_origen,
             id_bodega_destino=id_bodega_destino,
             lineas=lineas,
@@ -118,11 +133,9 @@ class SolicitudService:
         )
 
     async def create(
-        self, payload: "SolicitudCreate", user_id: uuid.UUID | None = None
+        self, payload: SolicitudCreate, user_id: uuid.UUID | None = None
     ) -> SolicitudView:
-        return await _create(
-            self._session, self._repo, self._notif, payload, user_id
-        )
+        return await _create(self._session, self._repo, self._notif, payload, user_id)
 
     # ============================================================== APPROVE
 
@@ -136,12 +149,16 @@ class SolicitudService:
     async def approve(
         self,
         solicitud_id: uuid.UUID,
-        payload: "SolicitudAprobacion | None" = None,
+        payload: SolicitudAprobacion | None = None,
         user_id: uuid.UUID | None = None,
     ) -> SolicitudView:
         return await _approve(
-            self._session, self._repo, self._notif,
-            solicitud_id, payload, user_id,
+            self._session,
+            self._repo,
+            self._notif,
+            solicitud_id,
+            payload,
+            user_id,
         )
 
     # ============================================================== DISPATCH
@@ -150,19 +167,28 @@ class SolicitudService:
         self, solicitud_id: uuid.UUID, user_id: uuid.UUID | None = None
     ) -> SolicitudView:
         return await _dispatch_solicitud(
-            self._session, self._repo, self._movement, self._notif,
-            solicitud_id, user_id,
+            self._session,
+            self._repo,
+            self._movement,
+            self._notif,
+            solicitud_id,
+            user_id,
         )
 
     async def dispatch(
         self,
         solicitud_id: uuid.UUID,
-        payload: "SolicitudDespacho",
+        payload: SolicitudDespacho,
         user_id: uuid.UUID | None = None,
     ) -> SolicitudView:
         return await _dispatch(
-            self._session, self._repo, self._movement, self._notif,
-            solicitud_id, payload, user_id,
+            self._session,
+            self._repo,
+            self._movement,
+            self._notif,
+            solicitud_id,
+            payload,
+            user_id,
         )
 
     # ============================================================== RECEIVE
@@ -175,19 +201,30 @@ class SolicitudService:
         user_id: uuid.UUID | None = None,
     ) -> SolicitudView:
         return await _receive_solicitud(
-            self._session, self._repo, self._movement, self._notif,
-            solicitud_id, lineas, notas, user_id,
+            self._session,
+            self._repo,
+            self._movement,
+            self._notif,
+            solicitud_id,
+            lineas,
+            notas,
+            user_id,
         )
 
     async def receive(
         self,
         solicitud_id: uuid.UUID,
-        payload: "SolicitudRecepcion",
+        payload: SolicitudRecepcion,
         user_id: uuid.UUID | None = None,
     ) -> SolicitudView:
         return await _receive(
-            self._session, self._repo, self._movement, self._notif,
-            solicitud_id, payload, user_id,
+            self._session,
+            self._repo,
+            self._movement,
+            self._notif,
+            solicitud_id,
+            payload,
+            user_id,
         )
 
     # ============================================================== REJECT / CANCEL
@@ -199,19 +236,27 @@ class SolicitudService:
         user_id: uuid.UUID | None = None,
     ) -> SolicitudView:
         return await _reject_solicitud(
-            self._session, self._repo, self._notif,
-            solicitud_id, motivo, user_id,
+            self._session,
+            self._repo,
+            self._notif,
+            solicitud_id,
+            motivo,
+            user_id,
         )
 
     async def reject(
         self,
         solicitud_id: uuid.UUID,
-        payload: "SolicitudRechazo",
+        payload: SolicitudRechazo,
         user_id: uuid.UUID | None = None,
     ) -> SolicitudView:
         return await _reject(
-            self._session, self._repo, self._notif,
-            solicitud_id, payload, user_id,
+            self._session,
+            self._repo,
+            self._notif,
+            solicitud_id,
+            payload,
+            user_id,
         )
 
     async def cancel_solicitud(
@@ -224,12 +269,16 @@ class SolicitudService:
     async def cancel(
         self,
         solicitud_id: uuid.UUID,
-        payload: "SolicitudCancelacion | None" = None,
+        payload: SolicitudCancelacion | None = None,
         user_id: uuid.UUID | None = None,
     ) -> SolicitudView:
         return await _cancel(
-            self._session, self._repo, self._notif,
-            solicitud_id, payload, user_id,
+            self._session,
+            self._repo,
+            self._notif,
+            solicitud_id,
+            payload,
+            user_id,
         )
 
     # ============================================================== LIST / GET
@@ -240,8 +289,10 @@ class SolicitudService:
         id_bodega_origen: uuid.UUID | None = None,
     ) -> list[SolicitudView]:
         return await _list_solicitudes(
-            self._session, self._repo,
-            estado=estado, id_bodega_origen=id_bodega_origen,
+            self._session,
+            self._repo,
+            estado=estado,
+            id_bodega_origen=id_bodega_origen,
         )
 
     async def list(
@@ -256,7 +307,8 @@ class SolicitudService:
         limit: int = 50,
     ) -> list[SolicitudView]:
         return await _list_with_filters(
-            self._session, self._repo,
+            self._session,
+            self._repo,
             estado=estado,
             id_bodega_origen=id_bodega_origen,
             id_bodega_destino=id_bodega_destino,
@@ -276,17 +328,13 @@ class SolicitudService:
 
     async def get_distribucion_multibodega(
         self, sku: str
-    ) -> "DistribucionMultibodegaResponse | None":
+    ) -> DistribucionMultibodegaResponse | None:
         return await _get_distribucion_multibodega(self._session, sku)
 
     # ============================================================== TRANSFERS LEGACY
 
-    async def get_derived_transfer(
-        self, codigo_legacy: str
-    ) -> "TransferDerivedResponse | None":
-        return await _get_derived_transfer(
-            self._session, self._repo, codigo_legacy
-        )
+    async def get_derived_transfer(self, codigo_legacy: str) -> TransferDerivedResponse | None:
+        return await _get_derived_transfer(self._session, self._repo, codigo_legacy)
 
 
 # Re-export SolicitudView para retrocompatibilidad con imports que

@@ -17,24 +17,26 @@ API publica (delegada a actions/queries):
       aprobar_orden, rechazar_orden, marcar_comprada, aprobar_con_token,
       list_ordenes, get_orden, get_orden_por_token.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import date
-from typing import TYPE_CHECKING
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.notificaciones.service import NotificacionesService
 from app.modules.ordenes_compra.actions._common import OrdenCompraView
 from app.modules.ordenes_compra.actions.actualizar import update_orden as _update_orden
 from app.modules.ordenes_compra.actions.aprobar import (
     aprobar_con_token as _aprobar_con_token,
+)
+from app.modules.ordenes_compra.actions.aprobar import (
     aprobar_orden as _aprobar_orden,
 )
 from app.modules.ordenes_compra.actions.crear import create_orden as _create_orden
 from app.modules.ordenes_compra.actions.enviar import (
     enviar_a_supervisor as _enviar_a_supervisor,
+)
+from app.modules.ordenes_compra.actions.enviar import (
     enviar_correo as _enviar_correo,
 )
 from app.modules.ordenes_compra.actions.marcar_comprada import (
@@ -44,8 +46,11 @@ from app.modules.ordenes_compra.actions.rechazar import rechazar_orden as _recha
 from app.modules.ordenes_compra.queries.listar import list_ordenes as _list_ordenes
 from app.modules.ordenes_compra.queries.obtener import (
     get_orden as _get_orden,
+)
+from app.modules.ordenes_compra.queries.obtener import (
     get_orden_por_token as _get_orden_por_token,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class OrdenCompraService:
@@ -97,7 +102,8 @@ class OrdenCompraService:
         id_supervisor: uuid.UUID | None = None,
     ) -> OrdenCompraView:
         return await _update_orden(
-            self._session, oc_id,
+            self._session,
+            oc_id,
             proveedor_nombre=proveedor_nombre,
             proveedor_contacto=proveedor_contacto,
             notas=notas,
@@ -111,34 +117,26 @@ class OrdenCompraService:
         oc_id: uuid.UUID,
         user_id: uuid.UUID | None = None,
     ) -> tuple[OrdenCompraView, str]:
-        return await _enviar_a_supervisor(
-            self._session, self._notif, oc_id, user_id=user_id
-        )
+        return await _enviar_a_supervisor(self._session, self._notif, oc_id, user_id=user_id)
 
     async def enviar_correo(
         self,
         oc_id: uuid.UUID,
         user_id: uuid.UUID | None = None,
     ) -> tuple[OrdenCompraView, str, uuid.UUID]:
-        return await _enviar_correo(
-            self._session, self._notif, oc_id, user_id=user_id
-        )
+        return await _enviar_correo(self._session, self._notif, oc_id, user_id=user_id)
 
     # ============================================================== APROBAR
 
     async def aprobar_orden(
         self, oc_id: uuid.UUID, user_id: uuid.UUID | None = None
     ) -> OrdenCompraView:
-        return await _aprobar_orden(
-            self._session, self._notif, oc_id, user_id
-        )
+        return await _aprobar_orden(self._session, self._notif, oc_id, user_id)
 
     async def aprobar_con_token(
         self, token: str, decision: str, motivo: str | None = None
     ) -> OrdenCompraView:
-        return await _aprobar_con_token(
-            self._session, self._notif, token, decision, motivo
-        )
+        return await _aprobar_con_token(self._session, self._notif, token, decision, motivo)
 
     # ============================================================== RECHAZAR
 
@@ -148,18 +146,14 @@ class OrdenCompraService:
         motivo: str,
         user_id: uuid.UUID | None = None,
     ) -> OrdenCompraView:
-        return await _rechazar_orden(
-            self._session, self._notif, oc_id, motivo, user_id
-        )
+        return await _rechazar_orden(self._session, self._notif, oc_id, motivo, user_id)
 
     # ============================================================== COMPRADA
 
     async def marcar_comprada(
         self, oc_id: uuid.UUID, user_id: uuid.UUID | None = None
     ) -> OrdenCompraView:
-        return await _marcar_comprada(
-            self._session, self._notif, oc_id, user_id
-        )
+        return await _marcar_comprada(self._session, self._notif, oc_id, user_id)
 
     # ============================================================== LIST / GET
 

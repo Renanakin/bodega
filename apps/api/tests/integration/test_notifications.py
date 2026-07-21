@@ -7,18 +7,15 @@ apuntan al path nuevo.
 Fase 7 anade ``process_one`` (worker Arq). Los tests existentes validan
 ``process_pending`` (batch legacy) y la API de enqueue.
 """
+
 from __future__ import annotations
 
-import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.db.models.ordenes_compra import EmailOutbox
 from app.modules.notifications import service as svc_module
 from app.modules.notifications.service import NotificationsService
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.integration
 
@@ -26,7 +23,9 @@ pytestmark = pytest.mark.integration
 class TestNotificationsService:
     @pytest.mark.asyncio
     async def test_enqueue_email(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         outbox = await service.enqueue_email(
@@ -39,31 +38,29 @@ class TestNotificationsService:
 
     @pytest.mark.asyncio
     async def test_process_pending_marks_sent(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
-        await service.enqueue_email(
-            to_email="x@bodega.example", subject="X", body_html="<p>X</p>"
-        )
+        await service.enqueue_email(to_email="x@bodega.example", subject="X", body_html="<p>X</p>")
 
         # Mock del cliente SMTP (Fase 7): ``process_one`` -> ``smtp_send_email``.
         # Mockeamos la referencia ``service.smtp_send_email`` (alias que el
         # modulo usa) para que el envio retorne OK.
-        with patch.object(
-            svc_module, "smtp_send_email", new=AsyncMock(return_value=None)
-        ):
+        with patch.object(svc_module, "smtp_send_email", new=AsyncMock(return_value=None)):
             stats = await service.process_pending(batch_size=10)
         assert stats["sent"] == 1
         assert stats["failed"] == 0
 
     @pytest.mark.asyncio
     async def test_process_retries_on_error(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
-        await service.enqueue_email(
-            to_email="y@bodega.example", subject="Y", body_html="<p>Y</p>"
-        )
+        await service.enqueue_email(to_email="y@bodega.example", subject="Y", body_html="<p>Y</p>")
 
         # Mock SMTP que falla como transitorio. process_one debe incrementar
         # attempts y dejar status=pending.
@@ -78,7 +75,9 @@ class TestNotificationsService:
 
     @pytest.mark.asyncio
     async def test_process_fails_after_max_attempts(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         service = NotificationsService(async_session)
         outbox = await service.enqueue_email(

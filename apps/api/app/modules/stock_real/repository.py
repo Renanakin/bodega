@@ -7,6 +7,7 @@ por ubicación) usando el ``SQLiteDatabase`` legacy.
 R3/R4: este repository NO escribe ``stock_levels`` (Nivel 1). El
 ``MovementEngine`` es el único que mantiene ambos sincronizados.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -58,14 +59,12 @@ class StockRealRepository:
             params.append(str(product_id))
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._db.query_all(
-            f"SELECT sr.* FROM inventario_stock_real sr{join}{where}",
+            f"SELECT sr.* FROM inventario_stock_real sr{join}{where}",  # noqa: S608
             tuple(params),
         )
         return [_to_stock_real(row) for row in rows]
 
-    def get(
-        self, id_producto: uuid.UUID, id_ubicacion: uuid.UUID
-    ) -> StockRealRecord | None:
+    def get(self, id_producto: uuid.UUID, id_ubicacion: uuid.UUID) -> StockRealRecord | None:
         row = self._db.query_one(
             """
             SELECT * FROM inventario_stock_real

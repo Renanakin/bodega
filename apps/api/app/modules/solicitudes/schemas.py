@@ -7,6 +7,7 @@ Reglas:
 - ADR-0003: namespace unificado de estados.
 - ADR-0002: origen ∈ {auxiliar, mecanico_box}, destino = principal.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -15,7 +16,6 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 
 Quantity = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2)]
 # Namespace unificado de estados (alineado con la migración 0006).
@@ -64,11 +64,9 @@ class SolicitudCreate(BaseModel):
         cls, value: list[SolicitudLineaCreate]
     ) -> list[SolicitudLineaCreate]:
         """No se permiten productos duplicados en la misma solicitud."""
-        ids = [l.producto_id for l in value]
+        ids = [line.producto_id for line in value]
         if len(ids) != len(set(ids)):
-            raise ValueError(
-                "No se permiten productos duplicados en la misma solicitud"
-            )
+            raise ValueError("No se permiten productos duplicados en la misma solicitud")
         return value
 
 
@@ -193,9 +191,9 @@ class SolicitudLineaResponse(BaseModel):
     @classmethod
     def from_detalle(
         cls,
-        detalle: "DetalleSolicitudRecarga",  # type: ignore[name-defined]  # noqa: F821
-        producto: "Product | None" = None,  # type: ignore[name-defined]  # noqa: F821
-    ) -> "SolicitudLineaResponse":
+        detalle: DetalleSolicitudRecarga,  # type: ignore[name-defined]  # noqa: F821
+        producto: Product | None = None,  # type: ignore[name-defined]  # noqa: F821
+    ) -> SolicitudLineaResponse:
         sku = getattr(producto, "sku", None) or ""
         nombre = getattr(producto, "name", None) or ""
         return cls(

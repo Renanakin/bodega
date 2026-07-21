@@ -21,6 +21,7 @@ Estos tests validan el contrato end-to-end con threads concurrentes:
   intentan 60 salidas cada uno (120 total) sobre stock 100. Resultado
   esperado: stock final = 0, exactamente 100 exitosas y 20 rechazadas.
 """
+
 from __future__ import annotations
 
 import threading
@@ -185,7 +186,9 @@ class MovementEngineThreadSafetyTestCase(unittest.TestCase):
             "WHERE warehouse_id = ? AND product_id = ? ORDER BY created_at",
             (str(self.warehouse.id), str(self.product.id)),
         )
-        self.assertEqual(len(rows), 101, f"Ledger esperaba 101 (1 seed + 100 out), obtuvo {len(rows)}")
+        self.assertEqual(
+            len(rows), 101, f"Ledger esperaba 101 (1 seed + 100 out), obtuvo {len(rows)}"
+        )
         # El primer movimiento es el seed (in=100), los 100 siguientes son out=1
         self.assertEqual(rows[0]["movement_type"], "in")
         self.assertEqual(Decimal(str(rows[0]["quantity"])), Decimal("100"))
@@ -242,9 +245,9 @@ class MovementEngineThreadSafetyTestCase(unittest.TestCase):
         )
 
         problematic = [
-            e for e in exceptions
-            if "database is locked" in str(e).lower()
-            or "recursive" in str(e).lower()
+            e
+            for e in exceptions
+            if "database is locked" in str(e).lower() or "recursive" in str(e).lower()
         ]
         self.assertEqual(
             problematic,

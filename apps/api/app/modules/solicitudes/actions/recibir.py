@@ -5,12 +5,11 @@ Incrementa stock de la bodega origen (Aux) via MovementEngine.
 Soporta recepcion parcial: cada linea puede tener cantidad_recibida <= cantidad_despachada.
 Valida barcode si viene (Fase 5).
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     BarcodeMismatchError,
@@ -29,15 +28,14 @@ from app.db.models.solicitudes import (
 )
 from app.db.models.users import UserRole
 from app.modules.barcode import match_product
-from app.shared.movement_engine import MovementEngine, MovementRequest
-
 from app.modules.solicitudes.actions._common import (
     SolicitudView,
     lock_or_404,
     to_view,
     utcnow,
 )
-
+from app.shared.movement_engine import MovementEngine, MovementRequest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.solicitudes.schemas import SolicitudRecepcion
@@ -77,29 +75,30 @@ async def _apply_receive(
         pending = detalle.cantidad_despachada - detalle.cantidad_recibida
         if cant > pending:
             raise InvalidTransferQuantityError(
-                f"Cantidad a recibir ({cant}) supera el pendiente ({pending}) "
-                f"para producto {pid}"
+                f"Cantidad a recibir ({cant}) supera el pendiente ({pending}) para producto {pid}"
             )
 
         # Validar barcode si viene (Fase 5).
         # - Si el producto no tiene codigo_barras, el validador hace skip.
         # - Si tiene, match_product valida formato + checksum + compara normalizado.
-        if barcode is not None:
-            producto = await session.get(Product, pid)
-            if producto is not None:
-                if not match_product(barcode, producto.codigo_barras):
-                    log.warning(
-                        "solicitud.barcode_mismatch",
-                        solicitud_id=str(solicitud.id),
-                        producto_id=str(pid),
-                        expected=producto.codigo_barras,
-                        received=barcode,
-                    )
-                    raise BarcodeMismatchError(
-                        producto_id=str(pid),
-                        expected=producto.codigo_barras or "",
-                        received=barcode,
-                    )
+        producto = await session.get(Product, pid) if barcode is not None else None
+        if (
+            barcode is not None
+            and producto is not None
+            and not match_product(barcode, producto.codigo_barras)
+        ):
+            log.warning(
+                "solicitud.barcode_mismatch",
+                solicitud_id=str(solicitud.id),
+                producto_id=str(pid),
+                expected=producto.codigo_barras,
+                received=barcode,
+            )
+            raise BarcodeMismatchError(
+                producto_id=str(pid),
+                expected=producto.codigo_barras or "",
+                received=barcode,
+            )
 
         # Aplicar movimiento IN (incrementa bodega origen)
         await movement.apply(
@@ -123,15 +122,11 @@ async def _apply_receive(
 
     # 4. Decidir estado final
     detalles = list(await repo.list_detalles(solicitud.id))
-    all_done = all(
-        d.cantidad_recibida == d.cantidad_despachada for d in detalles
-    )
+    all_done = all(d.cantidad_recibida == d.cantidad_despachada for d in detalles)
     any_dispatched = any(d.cantidad_despachada > 0 for d in detalles)
     now = utcnow()
     if all_done and any_dispatched:
-        await repo.update_estado(
-            solicitud.id, "received", received_at=now
-        )
+        await repo.update_estado(solicitud.id, "received", received_at=now)
     else:
         await repo.update_estado(solicitud.id, "partially_received")
 
@@ -157,15 +152,14 @@ async def _apply_receive(
     from app.modules.observability.metrics import (  # noqa: PLC0415
         SOLICITUDES_RECIBIDAS_TOTAL,
     )
+
     if all_done and any_dispatched:
         SOLICITUDES_RECIBIDAS_TOTAL.labels(completa="true").inc()
     else:
         SOLICITUDES_RECIBIDAS_TOTAL.labels(completa="false").inc()
 
     # Notificar a admin+supervisor (excluyendo al actor).
-    estado_notif = (
-        "recibida" if all_done and any_dispatched else "parcialmente recibida"
-    )
+    estado_notif = "recibida" if all_done and any_dispatched else "parcialmente recibida"
     await notif.notify_role_except_actor(
         actor_id=user_id,
         roles=[UserRole.ADMIN, UserRole.SUPERVISOR],
@@ -228,7 +222,7 @@ async def receive(
     movement: MovementEngine,
     notif,
     solicitud_id: uuid.UUID,
-    payload: "SolicitudRecepcion",
+    payload: SolicitudRecepcion,
     user_id: uuid.UUID | None = None,
 ) -> SolicitudView:
     """Recibe con payload Pydantic (incluye barcode + incidencia)."""
@@ -246,12 +240,12 @@ async def receive(
     detalles = list(await repo.list_detalles(solicitud_id))
     lineas_dicts = [
         {
-            "id_producto": l.producto_id,
-            "cantidad_recibida": l.cantidad_recibida,
-            "barcode": l.barcode,
-            "incidencia": l.incidencia,
+            "id_producto": line.producto_id,
+            "cantidad_recibida": line.cantidad_recibida,
+            "barcode": line.barcode,
+            "incidencia": line.incidencia,
         }
-        for l in payload.lineas
+        for line in payload.lineas
     ]
     return await _apply_receive(
         session=session,

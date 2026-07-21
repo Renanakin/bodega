@@ -65,8 +65,7 @@ class InsufficientStockError(DomainError):
         super().__init__(
             code="insufficient_stock",
             message=(
-                f"Insufficient stock for product '{product_id}' "
-                f"in warehouse '{warehouse_id}'."
+                f"Insufficient stock for product '{product_id}' in warehouse '{warehouse_id}'."
             ),
             status_code=409,
         )

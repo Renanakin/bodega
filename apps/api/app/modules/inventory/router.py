@@ -68,7 +68,9 @@ def list_movements(
     )
 
 
-@router.post("/movements", response_model=InventoryMovementResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/movements", response_model=InventoryMovementResponse, status_code=status.HTTP_201_CREATED
+)
 def register_movement(
     payload: InventoryMovementCreate,
     user=Depends(require_roles("admin", "supervisor", "origin_operator", "destination_operator")),
@@ -95,6 +97,7 @@ def inventory_summary(
 
 
 # --- Fase 8: parametrizacion por bodega x producto ---
+
 
 @router.put(
     "/parametros/{producto_id}/{bodega_id}",

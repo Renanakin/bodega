@@ -8,12 +8,11 @@ Reglas (ADR-0002):
 - cada producto debe existir y estar activo
 - no se permiten productos duplicados
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     InvalidTransferQuantityError,
@@ -27,14 +26,12 @@ from app.db.models.products import Product
 from app.db.models.users import UserRole
 from app.db.models.warehouses import Warehouse
 from app.modules.observability.metrics import SOLICITUDES_CREADAS
-
 from app.modules.solicitudes.actions._common import (
     SolicitudView,
     to_view,
-    utcnow,
     validate_direction,
 )
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.solicitudes.schemas import SolicitudCreate
@@ -75,7 +72,7 @@ async def create_solicitud(
     if not lineas:
         raise InvalidTransferQuantityError("La solicitud debe tener al menos 1 linea")
 
-    product_ids = [l["id_producto"] for l in lineas]
+    product_ids = [line["id_producto"] for line in lineas]
     if len(product_ids) != len(set(product_ids)):
         raise InvalidTransferQuantityError("Productos duplicados en la solicitud")
 
@@ -146,10 +143,7 @@ async def create_solicitud(
         roles=[UserRole.ADMIN, UserRole.SUPERVISOR],
         tipo=NotificationType.SOLICITUD_CREATED.value,
         titulo=f"Nueva solicitud {solicitud.codigo}",
-        mensaje=(
-            f"{wh_origen.code} -> {wh_destino.code}: "
-            f"{len(lineas)} producto(s)"
-        ),
+        mensaje=(f"{wh_origen.code} -> {wh_destino.code}: {len(lineas)} producto(s)"),
         payload=(
             f'{{"solicitud_id": "{solicitud.id}", '
             f'"codigo": "{solicitud.codigo}", '
@@ -165,7 +159,7 @@ async def create(
     session: AsyncSession,
     repo,
     notif,
-    payload: "SolicitudCreate",
+    payload: SolicitudCreate,
     user_id: uuid.UUID | None = None,
 ) -> SolicitudView:
     """Sobrecarga: acepta un ``SolicitudCreate`` Pydantic."""
@@ -176,8 +170,8 @@ async def create(
         id_bodega_origen=payload.bodega_origen_id,
         id_bodega_destino=payload.bodega_destino_id,
         lineas=[
-            {"id_producto": l.producto_id, "cantidad_solicitada": l.cantidad_solicitada}
-            for l in payload.lineas
+            {"id_producto": line.producto_id, "cantidad_solicitada": line.cantidad_solicitada}
+            for line in payload.lineas
         ],
         prioridad=payload.prioridad,
         notas=payload.notas,

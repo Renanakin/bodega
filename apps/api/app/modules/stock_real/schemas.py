@@ -9,13 +9,14 @@ Tres "vistas" del mismo dominio:
    ``MultibodegaGrid`` (formato spec §4.1).
 3. ``BajoMinimoItem``: alerta para el dashboard / bandeja.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class StockRealItem(BaseModel):
