@@ -38,16 +38,16 @@ def login(
     return AuthSessionResponse(token=session.token, expires_at=session.expires_at)
 
 
-@router.post("/logout", status_code=204)
+@router.post(
+    "/logout",
+    status_code=204,
+    response_class=Response,  # explicito para FastAPI >= 0.116
+)
 def logout(
     authorization: str | None = Header(default=None),
     service: AuthService = Depends(get_auth_service),
 ) -> Response:
     service.logout(_extract_bearer_token(authorization))
-    # FastAPI >= 0.116 rechaza funciones con status_code=204 que tengan
-    # body. Devolvemos un Response vacio para que el framework envie un
-    # 204 sin contenido. El status_code del decorator ya configura el
-    # codigo HTTP, asi que no necesitamos setearlo manualmente.
     return Response(status_code=204)
 
 

@@ -114,6 +114,9 @@ filterwarnings = [
     "error",
     "ignore::DeprecationWarning:passlib.*",
     "ignore::DeprecationWarning:pydantic.*",
+    # FastAPI 0.116 / starlette 0.47 usan asyncio.iscoroutinefunction,
+    # deprecado en Python 3.14. Removido en 3.16. Es interno de la lib.
+    "ignore:.*asyncio.iscoroutinefunction.*:DeprecationWarning",
 ]
 
 # ----------------------------------------------------------------------

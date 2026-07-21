@@ -58,7 +58,11 @@ def upsert_detalle_neumatico(
     return service.upsert(product_id, payload)
 
 
-@router.delete("/{product_id}/neumatico", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{product_id}/neumatico",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,  # explicito: FastAPI >= 0.116 confunde -> None con NoneType
+)
 def delete_detalle_neumatico(
     product_id: UUID,
     _=Depends(require_roles("admin", "supervisor")),

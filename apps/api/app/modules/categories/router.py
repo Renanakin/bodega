@@ -116,7 +116,11 @@ def update_category(
     return category
 
 
-@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,  # explicito: FastAPI >= 0.116 confunde -> None con NoneType
+)
 def delete_category(
     category_id: UUID,
     user=Depends(require_roles("admin", "supervisor")),

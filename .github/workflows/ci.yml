@@ -200,6 +200,8 @@ jobs:
           SMTP_FROM: noreply@bodega.example
           PUBLIC_BASE_URL: http://localhost:8000
           SENTRY_DSN: ""
+          CORS_ALLOWED_ORIGINS: http://localhost:5173
+          BACKUP_S3_BUCKET: ""
         run: |
           docker compose -f infra/docker/docker-compose.yml \
                          -f infra/docker/compose.production.yml config -q
