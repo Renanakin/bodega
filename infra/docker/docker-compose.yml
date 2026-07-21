@@ -3,6 +3,8 @@ services:
     image: postgres:17-alpine
     container_name: bodegaje-db
     restart: unless-stopped
+    ports:
+      - "5432:5432"   # expuesto al host para tests de integracion
     environment:
       POSTGRES_DB: bodegaje
       POSTGRES_USER: bodegaje

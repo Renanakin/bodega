@@ -24,9 +24,13 @@ class TestEngineInitialization:
         e2 = get_engine()
         assert e1 is e2
 
-    def test_detect_backend_returns_sqlite(self) -> None:
-        """Con DATABASE_URL=sqlite, detecta backend=sqlite."""
-        assert detect_backend() == "sqlite"
+    def test_detect_backend_returns_expected(self) -> None:
+        """``detect_backend`` refleja el ``DATABASE_URL`` actual (sqlite o postgres)."""
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        expected = "postgres" if settings.database_url.startswith("postgresql") else "sqlite"
+        assert detect_backend() == expected
 
 
 class TestPingDatabase:

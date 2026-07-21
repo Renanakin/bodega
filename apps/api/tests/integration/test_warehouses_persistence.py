@@ -18,6 +18,12 @@ from sqlalchemy import select
 pytestmark = pytest.mark.integration
 
 
+def _is_postgres() -> bool:
+    import os
+
+    return os.getenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:").startswith("postgresql")
+
+
 class TestWarehousesCRUD:
     """CRUD básico sobre warehouses con async engine."""
 
@@ -41,7 +47,15 @@ class TestWarehousesCRUD:
         assert saved.is_active is True
 
     @pytest.mark.asyncio
-    async def test_warehouse_type_constraint(self, async_engine, async_session) -> None:  # type: ignore[no-untyped-def]
+    @pytest.mark.skipif(
+        not _is_postgres(),
+        reason="CHECK constraint en SQLite async es limitado; test válido en Postgres",
+    )
+    async def test_warehouse_type_constraint(
+        self,
+        async_engine_postgres,  # type: ignore[no-untyped-def]
+        async_session_postgres,  # type: ignore[no-untyped-def]
+    ) -> None:
         """CHECK constraint rechaza warehouse_type inválido."""
         from sqlalchemy.exc import IntegrityError
 
@@ -52,9 +66,9 @@ class TestWarehousesCRUD:
             warehouse_type="inventado",
             is_active=True,
         )
-        async_session.add(warehouse)
+        async_session_postgres.add(warehouse)
         with pytest.raises(IntegrityError):
-            await async_session.commit()
+            await async_session_postgres.commit()
 
 
 class TestStockMovements:

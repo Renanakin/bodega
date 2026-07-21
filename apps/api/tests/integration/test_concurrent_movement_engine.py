@@ -33,27 +33,9 @@ pytestmark = [pytest.mark.integration, pytest.mark.concurrency]
 _TEST_LOCK = asyncio.Lock()
 
 
-class TestConcurrentMovementsPostgres:
-    """Tests que requieren PostgreSQL real (skippea en SQLite)."""
-
-    @pytest.mark.asyncio
-    async def test_50_parallel_in_movements_postgres(
-        self,
-        postgres_required,  # type: ignore[no-untyped-def]
-    ) -> None:
-        """50 entradas paralelas: stock final = 50 (Postgres)."""
-        # Implementación análoga a la versión SQLite pero usando
-        # AsyncSession(async_engine) directamente. La verificación
-        # fuerte es que NO hay oversell: successes == 50 → stock == 50.
-        pytest.skip("Implementación específica para Postgres; ver test_sequential_locking")
-
-    @pytest.mark.asyncio
-    async def test_no_oversell_postgres(
-        self,
-        postgres_required,  # type: ignore[no-untyped-def]
-    ) -> None:
-        """80 salidas paralelas con stock=50: successes=50, stock=0, no negative."""
-        pytest.skip("Implementación específica para Postgres; ver test_sequential_locking")
+# Los tests de concurrencia con Postgres real viven en
+# ``test_concurrent_postgres.py`` con el fixture ``async_engine_postgres``.
+# Esta clase quedó solo con tests SQLite, que validan la mecánica async.
 
 
 class TestConcurrentMovementsSqlite:
