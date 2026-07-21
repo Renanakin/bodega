@@ -43,10 +43,12 @@ def logout(
     response: Response,
     authorization: str | None = Header(default=None),
     service: AuthService = Depends(get_auth_service),
-) -> Response:
+) -> None:
     service.logout(_extract_bearer_token(authorization))
     response.status_code = 204
-    return response
+    # No retornamos response porque FastAPI >= 0.116 valida que status_code
+    # 204 no tenga body. Mutamos `response` in-place y dejamos que el
+    # framework envie la respuesta vacia.
 
 
 @router.get("/me", response_model=AuthUserResponse)
