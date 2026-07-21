@@ -40,15 +40,15 @@ def login(
 
 @router.post("/logout", status_code=204)
 def logout(
-    response: Response,
     authorization: str | None = Header(default=None),
     service: AuthService = Depends(get_auth_service),
-) -> None:
+) -> Response:
     service.logout(_extract_bearer_token(authorization))
-    response.status_code = 204
-    # No retornamos response porque FastAPI >= 0.116 valida que status_code
-    # 204 no tenga body. Mutamos `response` in-place y dejamos que el
-    # framework envie la respuesta vacia.
+    # FastAPI >= 0.116 rechaza funciones con status_code=204 que tengan
+    # body. Devolvemos un Response vacio para que el framework envie un
+    # 204 sin contenido. El status_code del decorator ya configura el
+    # codigo HTTP, asi que no necesitamos setearlo manualmente.
+    return Response(status_code=204)
 
 
 @router.get("/me", response_model=AuthUserResponse)
