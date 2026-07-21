@@ -23,19 +23,19 @@ Idempotencia:
   con ``read_at`` inalterado.
 - ``mark_all_read`` cuando no hay no_leidas: retorna 0 (cero updates).
 """
+
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Iterable
-
-from sqlalchemy import func, insert, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotificationNotFoundError
 from app.core.logging import get_logger
 from app.db.models.notificaciones import Notificacion
 from app.db.models.users import User, UserRole
+from sqlalchemy import func, insert, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 
@@ -44,9 +44,7 @@ class NotificacionesService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def list_for_user(
-        self, user_id: uuid.UUID, limit: int = 50
-    ) -> list[Notificacion]:
+    async def list_for_user(self, user_id: uuid.UUID, limit: int = 50) -> list[Notificacion]:
         """Lista las notificaciones mas recientes del usuario."""
         stmt = (
             select(Notificacion)
@@ -59,19 +57,16 @@ class NotificacionesService:
 
     async def count_for_user(self, user_id: uuid.UUID) -> tuple[int, int]:
         """Retorna ``(total, no_leidas)`` para el badge."""
-        total_stmt = select(func.count(Notificacion.id)).where(
-            Notificacion.user_id == user_id
-        )
+        total_stmt = select(func.count(Notificacion.id)).where(Notificacion.user_id == user_id)
         total = (await self._session.execute(total_stmt)).scalar_one()
         no_leidas_stmt = select(func.count(Notificacion.id)).where(
-            Notificacion.user_id == user_id, Notificacion.leida == False  # noqa: E712
+            Notificacion.user_id == user_id,
+            Notificacion.leida == False,  # noqa: E712
         )
         no_leidas = (await self._session.execute(no_leidas_stmt)).scalar_one()
         return int(total or 0), int(no_leidas or 0)
 
-    async def mark_read(
-        self, notification_id: uuid.UUID, user_id: uuid.UUID
-    ) -> Notificacion:
+    async def mark_read(self, notification_id: uuid.UUID, user_id: uuid.UUID) -> Notificacion:
         """Marca una notificacion como leida (idempotente).
 
         Verifica que la notificacion pertenezca al usuario (404 si no),
@@ -198,7 +193,7 @@ class NotificacionesService:
 
         Retorna el numero de notificaciones creadas.
         """
-        roles_list = [r for r in roles]
+        roles_list = list(roles)
         if not roles_list:
             return 0
         stmt = select(User.id).where(

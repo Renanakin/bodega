@@ -2,6 +2,7 @@
 
 NOTA: NO usar `from __future__ import annotations` ni `relationship()` aquí.
 """
+
 import enum
 import uuid
 from datetime import datetime
@@ -29,7 +30,13 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(60), nullable=False, unique=True)
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="user_role_enum", native_enum=False, length=40, values_callable=lambda x: [e.value for e in x]),
+        Enum(
+            UserRole,
+            name="user_role_enum",
+            native_enum=False,
+            length=40,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     password_hash: Mapped[str] = mapped_column(String(500), nullable=False)

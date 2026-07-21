@@ -7,6 +7,7 @@ Cubre:
 - Distribución multibodega con formato spec §4.1.
 - Bajo mínimo: respeta el filtro de bodega.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -47,9 +48,7 @@ def _create_warehouse(client: TestClient, headers: dict[str, str], code: str) ->
     return r.json()["id"]
 
 
-def _create_product(
-    client: TestClient, headers: dict[str, str], sku: str
-) -> str:
+def _create_product(client: TestClient, headers: dict[str, str], sku: str) -> str:
     r = client.post(
         "/api/v1/products",
         json={"sku": sku, "name": sku, "unit": "unidad"},
@@ -168,16 +167,12 @@ class StockRealTestCase(unittest.TestCase):
         self.assertEqual(filtered.json()[0]["id_ubicacion"], ub1)
 
     def test_distribucion_multibodega_formato_spec(self) -> None:
-        wh_principal = _create_warehouse(
-            self.client, self.headers, "PRINCIPAL"
-        )
+        wh_principal = _create_warehouse(self.client, self.headers, "PRINCIPAL")
         wh_aux = _create_warehouse(self.client, self.headers, "AUX-1")
         prod = _create_product(self.client, self.headers, "SKU-MULTI")
 
         # Stock: principal 140, aux 12
-        _register_movement(
-            self.client, self.headers, wh_principal, prod, 140
-        )
+        _register_movement(self.client, self.headers, wh_principal, prod, 140)
         _register_movement(self.client, self.headers, wh_aux, prod, 12)
 
         r = self.client.get(
@@ -219,9 +214,7 @@ class StockRealTestCase(unittest.TestCase):
         )
 
         # Sin filtro → ambos
-        all_bm = self.client.get(
-            "/api/v1/inventario/real/bajo-minimo", headers=self.headers
-        ).json()
+        all_bm = self.client.get("/api/v1/inventario/real/bajo-minimo", headers=self.headers).json()
         self.assertEqual(len(all_bm), 1)  # Solo WH1 está bajo mínimo
         self.assertEqual(all_bm[0]["bodega_code"], "WH-BM1")
 
@@ -241,7 +234,7 @@ class StockRealTestCase(unittest.TestCase):
         self.assertEqual(len(only_wh2), 0)
 
     def test_ubicacion_no_existe_en_upsert(self) -> None:
-        wh = _create_warehouse(self.client, self.headers, "WH-NOUB")
+        _create_warehouse(self.client, self.headers, "WH-NOUB")
         prod = _create_product(self.client, self.headers, "SKU-NOUB")
 
         r = self.client.post(
@@ -254,9 +247,7 @@ class StockRealTestCase(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(r.status_code, 404)
-        self.assertEqual(
-            r.json()["detail"]["code"], "ubicacion_not_found"
-        )
+        self.assertEqual(r.json()["detail"]["code"], "ubicacion_not_found")
 
 
 if __name__ == "__main__":

@@ -24,15 +24,16 @@ API publica:
 El error de dominio ``BarcodeFormatError`` se importa de ``app.core.errors``
 para mantener consistencia con el resto del proyecto (ver errors.py).
 """
+
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 
 from app.core.errors import BarcodeFormatError
 
 
-class BarcodeFormat(str, Enum):
+class BarcodeFormat(StrEnum):
     """Formatos de codigo de barras soportados."""
 
     EAN_13 = "ean_13"
@@ -152,7 +153,7 @@ def _ean_checksum_is_valid(digits: str) -> bool:
         weights = [1 if i % 2 == 0 else 3 for i in range(12)]
     else:  # 8
         weights = [3 if i % 2 == 0 else 1 for i in range(7)]
-    total = sum(d * w for d, w in zip(body, weights))
+    total = sum(d * w for d, w in zip(body, weights, strict=False))
     expected = (10 - (total % 10)) % 10
     return check_digit == expected
 
@@ -180,9 +181,10 @@ def validate(barcode: str) -> tuple[bool, str, BarcodeFormat]:
     normalized = normalize(barcode)
     fmt = detect_format(normalized)
 
-    if fmt in (BarcodeFormat.EAN_13, BarcodeFormat.EAN_8):
-        if not _ean_checksum_is_valid(normalized):
-            return False, normalized, fmt
+    if fmt in (BarcodeFormat.EAN_13, BarcodeFormat.EAN_8) and not _ean_checksum_is_valid(
+        normalized
+    ):
+        return False, normalized, fmt
     if fmt == BarcodeFormat.UNKNOWN:
         return False, normalized, fmt
     return True, normalized, fmt

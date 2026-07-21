@@ -21,7 +21,7 @@ class ProductService:
     def __init__(
         self,
         repository: ProductRepository,
-        category_repository: "CategoryRepository | None" = None,
+        category_repository: CategoryRepository | None = None,
     ) -> None:
         # ``category_repository`` es opcional para mantener compat con los
         # tests existentes que instancian ``ProductService(ProductRepository(db))``.
@@ -59,19 +59,13 @@ class ProductService:
             created_at=now,
             updated_at=now,
             codigo_barras=payload.codigo_barras,
-            precio_costo=payload.precio_costo
-            if payload.precio_costo is not None
-            else Decimal("0"),
-            precio_venta=payload.precio_venta
-            if payload.precio_venta is not None
-            else Decimal("0"),
+            precio_costo=payload.precio_costo if payload.precio_costo is not None else Decimal("0"),
+            precio_venta=payload.precio_venta if payload.precio_venta is not None else Decimal("0"),
             id_categoria=payload.id_categoria,
         )
         return self._repository.add(product)
 
-    def update_product(
-        self, product_id: UUID, payload: ProductUpdate
-    ) -> ProductRecord:
+    def update_product(self, product_id: UUID, payload: ProductUpdate) -> ProductRecord:
         self.get_product(product_id)  # 404 si no existe
 
         if payload.id_categoria is not None:

@@ -12,9 +12,9 @@ Cubre (sin requerir infra externa):
 
 Los tests no requieren Postgres, Redis, Nginx ni ningun servicio externo.
 """
+
 from __future__ import annotations
 
-import re
 import string
 
 import pytest
@@ -35,10 +35,6 @@ class TestGenerateSecrets:
         from pathlib import Path
 
         # tests/unit/test_hardening.py -> apps/api/tests/unit
-        # parents[0] = tests/unit
-        # parents[1] = tests
-        # parents[2] = apps/api
-        # parents[3] = apps
         # parents[4] = <repo>  (REPO_ROOT)
         repo_root = Path(__file__).resolve().parents[4]
         script_path = repo_root / "infra" / "scripts" / "generate-secrets.py"
@@ -99,14 +95,11 @@ class TestPasswordHashingHardening:
         from app.core.config import get_settings
 
         settings = get_settings()
-        assert settings.password_hash_iterations == 600_000, (
-            f"Default debe ser 600_000 (OWASP 2023), recibido: "
-            f"{settings.password_hash_iterations}"
-        )
+        assert (
+            settings.password_hash_iterations == 600_000
+        ), f"Default debe ser 600_000 (OWASP 2023), recibido: {settings.password_hash_iterations}"
 
-    def test_hash_password_con_600k_iteraciones_es_usable(
-        self, env_development: None
-    ) -> None:
+    def test_hash_password_con_600k_iteraciones_es_usable(self, env_development: None) -> None:
         """Hash con 600k iteraciones toma < 1s y produce output valido."""
         from app.core.security import hash_password, verify_password
 
@@ -123,7 +116,7 @@ class TestPasswordHashingHardening:
         assert "$" in stored, f"Formato invalido: {stored!r}"
         salt, digest = stored.split("$", 1)
         assert len(salt) == 32, f"Salt length incorrecto: {len(salt)}"
-        assert len(digest) == 64, f"PBKDF2 SHA-256 digest debe ser 64 hex chars"
+        assert len(digest) == 64, "PBKDF2 SHA-256 digest debe ser 64 hex chars"
         # Verify funciona
         assert verify_password(password, stored) is True
         assert verify_password("wrong-password", stored) is False
@@ -132,9 +125,7 @@ class TestPasswordHashingHardening:
 class TestSettingsHardening:
     """Settings valida secretos y TLS en produccion (Fase 10 hardening)."""
 
-    def test_jwt_secret_min_length_32_en_produccion(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_jwt_secret_min_length_32_en_produccion(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """En produccion, JWT_SECRET < 32 chars es rechazado."""
         monkeypatch.setenv("ENVIRONMENT", "production")
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/d")
@@ -150,9 +141,7 @@ class TestSettingsHardening:
             Settings()
         assert "jwt_secret" in str(exc_info.value).lower()
 
-    def test_settings_secret_key_min_length_32(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_settings_secret_key_min_length_32(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Si SECRET_KEY esta seteado, debe tener >= 32 chars (Fase 10)."""
         monkeypatch.setenv("ENVIRONMENT", "development")  # no prod (skip prod checks)
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/d")
@@ -167,9 +156,7 @@ class TestSettingsHardening:
             Settings()
         assert "secret_key" in str(exc_info.value).lower()
 
-    def test_settings_secret_key_optional_en_dev(
-        self, env_development: None
-    ) -> None:
+    def test_settings_secret_key_optional_en_dev(self, env_development: None) -> None:
         """En dev, SECRET_KEY=None esta permitido (fallback a JWT_SECRET)."""
         from app.core.config import get_settings
 
@@ -195,9 +182,7 @@ class TestSettingsHardening:
         assert "secret_key" in str(exc_info.value).lower()
         assert "produccion" in str(exc_info.value).lower()
 
-    def test_settings_tls_en_produccion_smtp(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_settings_tls_en_produccion_smtp(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """En produccion, SMTP_USE_TLS=false es RECHAZADO (ADR-0004)."""
         monkeypatch.setenv("ENVIRONMENT", "production")
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/d")
@@ -213,9 +198,7 @@ class TestSettingsHardening:
             Settings()
         assert "smtp" in str(exc_info.value).lower()
 
-    def test_settings_redact_passwords_en_logs(
-        self, env_development: None
-    ) -> None:
+    def test_settings_redact_passwords_en_logs(self, env_development: None) -> None:
         """DATABASE_URL en logs/str() no expone el password.
 
         El metodo ``_redact_url`` de ``app.db.session`` debe ocultar el password.
@@ -229,23 +212,17 @@ class TestSettingsHardening:
         # Caso 1: URL Postgres con password.
         url = "postgresql+asyncpg://user:supersecret@db.example.com:5432/bodegaje"
         redacted = _redact_url(url)
-        assert "supersecret" not in redacted, (
-            f"Password leaked en: {redacted!r}"
-        )
-        assert "***" in redacted or "REDACTED" in redacted or "user:" in redacted, (
-            f"Redaction no aplicada en: {redacted!r}"
-        )
+        assert "supersecret" not in redacted, f"Password leaked en: {redacted!r}"
+        assert (
+            "***" in redacted or "REDACTED" in redacted or "user:" in redacted
+        ), f"Redaction no aplicada en: {redacted!r}"
 
         # Caso 2: URL Redis con password.
         url_redis = "redis://:redis_password@redis.example.com:6379/0"
         redacted_redis = _redact_url(url_redis)
-        assert "redis_password" not in redacted_redis, (
-            f"Redis password leaked: {redacted_redis!r}"
-        )
+        assert "redis_password" not in redacted_redis, f"Redis password leaked: {redacted_redis!r}"
 
-    def test_settings_jwt_secret_es_secretstr(
-        self, env_development: None
-    ) -> None:
+    def test_settings_jwt_secret_es_secretstr(self, env_development: None) -> None:
         """JWT_SECRET es SecretStr (no se serializa accidentalmente)."""
         from app.core.config import get_settings
 
@@ -278,9 +255,7 @@ class TestSettingsHardening:
             f"recibido: {settings.log_format!r}"
         )
 
-    def test_approval_token_usa_secret_key_dedicated(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_approval_token_usa_secret_key_dedicated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Approval tokens usan SECRET_KEY dedicado (no JWT_SECRET) en produccion."""
         monkeypatch.setenv("ENVIRONMENT", "production")
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/d")
@@ -299,16 +274,14 @@ class TestSettingsHardening:
         # verificar via payload firmado.
         token = serializer.dumps({"test": "value"})
         # Decodificar con secret_key
-        from itsdangerous import URLSafeTimedSerializer
+        from itsdangerous import BadSignature, URLSafeTimedSerializer  # noqa: PLC0415
 
         verifier_correct = URLSafeTimedSerializer(
             secret_key="b" * 32, salt="bodegaje-approval-token"
         )
-        verifier_wrong = URLSafeTimedSerializer(
-            secret_key="a" * 32, salt="bodegaje-approval-token"
-        )
+        verifier_wrong = URLSafeTimedSerializer(secret_key="a" * 32, salt="bodegaje-approval-token")
         # El correcto debe poder verificar.
         verifier_correct.loads(token, max_age=3600)
         # El incorrecto (JWT_SECRET) debe FALLAR -> confirma que se usa SECRET_KEY.
-        with pytest.raises(Exception):  # BadSignature
+        with pytest.raises(BadSignature):
             verifier_wrong.loads(token, max_age=3600)

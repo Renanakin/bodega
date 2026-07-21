@@ -6,6 +6,7 @@ Endpoints:
 - ``POST /api/v1/notificaciones/{id}/marcar-leida`` — marca una.
 - ``POST /api/v1/notificaciones/marcar-todas-leidas`` — bulk.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -50,9 +51,7 @@ async def count_no_leidas(
     return NotificacionCount(total=total, no_leidas=no_leidas)
 
 
-@router.post(
-    "/{notification_id}/marcar-leida", response_model=NotificacionResponse
-)
+@router.post("/{notification_id}/marcar-leida", response_model=NotificacionResponse)
 async def mark_leida(
     notification_id: uuid.UUID,
     user=Depends(get_current_user),
@@ -69,7 +68,7 @@ async def mark_todas_leidas(
     service: NotificacionesService = Depends(get_notificaciones_service),
 ) -> NotificacionCount:
     """Marca TODAS las no_leidas del usuario actual como leidas."""
-    count = await service.mark_all_read(user.id)
+    await service.mark_all_read(user.id)
     # Despues de marcar, no_leidas = 0. Refetch para total real.
     total, _ = await service.count_for_user(user.id)
     return NotificacionCount(total=total, no_leidas=0)

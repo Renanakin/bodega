@@ -7,6 +7,7 @@ Endpoints:
 - ``PATCH  /api/v1/proveedores/{id}``          — actualizar parcial (admin only)
 - ``DELETE /api/v1/proveedores/{id}``          — soft delete (admin only)
 """
+
 from __future__ import annotations
 
 import uuid
@@ -34,9 +35,7 @@ def get_proveedor_service(
 
 @router.get("", response_model=list[ProveedorResponse])
 async def list_proveedores(
-    activo: bool | None = Query(
-        default=None, description="Filtrar por activo (true|false)"
-    ),
+    activo: bool | None = Query(default=None, description="Filtrar por activo (true|false)"),
     _user=Depends(get_current_user),
     service: ProveedorService = Depends(get_proveedor_service),
 ) -> list[ProveedorResponse]:

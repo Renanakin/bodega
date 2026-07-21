@@ -4,6 +4,7 @@ Reglas aplicadas:
 - R3: extension de un modelo existente, no duplicación.
 - R5: nombres describen el rol (product_extension vs products).
 """
+
 import uuid
 
 from app.db.base import GUID, Base
@@ -11,6 +12,7 @@ from sqlalchemy import CheckConstraint, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 # --- Tabla extension: detalles_neumaticos (opt-in 1:1 con products) ---
+
 
 class DetalleNeumatico(Base):
     """Detalle de un producto tipo neumatico (1:1 opt-in)."""

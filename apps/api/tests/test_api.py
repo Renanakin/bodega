@@ -3,14 +3,15 @@ from __future__ import annotations
 import unittest
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
-
+from app.db.session import utcnow
 from app.main import create_app
 from app.modules.auth.security import hash_password
-from app.db.session import utcnow
+from fastapi.testclient import TestClient
 
 
-def auth_headers(client: TestClient, username: str = "admin", password: str = "demo123") -> dict[str, str]:
+def auth_headers(
+    client: TestClient, username: str = "admin", password: str = "demo123"
+) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
         json={"username": username, "password": password},

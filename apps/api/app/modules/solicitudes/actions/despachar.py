@@ -5,12 +5,11 @@ Descuenta stock de la bodega destino (Principal) via MovementEngine.
 El origen (Aux) aun no tiene unidades; las recibira cuando el auxiliar
 las confirma via `receive` (ver actions/recibir.py).
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     InvalidTransferQuantityError,
@@ -27,15 +26,14 @@ from app.db.models.solicitudes import (
 )
 from app.db.models.users import UserRole
 from app.db.models.warehouses import Warehouse
-from app.shared.movement_engine import MovementEngine, MovementRequest
-
 from app.modules.solicitudes.actions._common import (
     SolicitudView,
     lock_or_404,
     to_view,
     utcnow,
 )
-
+from app.shared.movement_engine import MovementEngine, MovementRequest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.solicitudes.schemas import SolicitudDespacho
@@ -108,6 +106,7 @@ async def _apply_dispatch(
     from app.modules.observability.metrics import (  # noqa: PLC0415
         SOLICITUDES_DESPACHADAS_TOTAL,
     )
+
     SOLICITUDES_DESPACHADAS_TOTAL.inc()
 
     log.info(
@@ -119,21 +118,14 @@ async def _apply_dispatch(
     )
 
     # Notificar a operadores de destino (y admin/supervisor).
-    wh_destino_disp = await session.get(
-        Warehouse, solicitud.id_bodega_destino
-    )
+    wh_destino_disp = await session.get(Warehouse, solicitud.id_bodega_destino)
     await notif.notify_role_except_actor(
         actor_id=user_id,
         roles=[UserRole.DESTINATION_OPERATOR],
         tipo=NotificationType.SOLICITUD_DISPATCHED.value,
         titulo=f"Solicitud {solicitud.codigo} despachada",
-        mensaje=(
-            f"Recibir en {wh_destino_disp.code if wh_destino_disp else 'destino'}"
-        ),
-        payload=(
-            f'{{"solicitud_id": "{solicitud.id}", '
-            f'"codigo": "{solicitud.codigo}"}}'
-        ),
+        mensaje=(f"Recibir en {wh_destino_disp.code if wh_destino_disp else 'destino'}"),
+        payload=(f'{{"solicitud_id": "{solicitud.id}", "codigo": "{solicitud.codigo}"}}'),
     )
 
     return await to_view(session, repo, solicitud.id)
@@ -154,9 +146,7 @@ async def dispatch_solicitud(
     # 1. Lock + validar estado
     solicitud = await lock_or_404(repo, solicitud_id)
     if solicitud.estado != SolicitudEstado.APPROVED:
-        raise SolicitudInvalidStateError(
-            current=solicitud.estado.value, expected="approved"
-        )
+        raise SolicitudInvalidStateError(current=solicitud.estado.value, expected="approved")
     # 2. Cargar detalles y construir lineas "completas"
     detalles = list(await repo.list_detalles(solicitud_id))
     if not detalles:
@@ -188,25 +178,23 @@ async def dispatch(
     movement: MovementEngine,
     notif,
     solicitud_id: uuid.UUID,
-    payload: "SolicitudDespacho",
+    payload: SolicitudDespacho,
     user_id: uuid.UUID | None = None,
 ) -> SolicitudView:
     """Despacha con payload por linea (despacho parcial permitido)."""
     solicitud = await lock_or_404(repo, solicitud_id)
     if solicitud.estado != SolicitudEstado.APPROVED:
-        raise SolicitudInvalidStateError(
-            current=solicitud.estado.value, expected="approved"
-        )
+        raise SolicitudInvalidStateError(current=solicitud.estado.value, expected="approved")
     if not payload.lineas:
         raise InvalidTransferQuantityError("El despacho debe tener al menos 1 linea")
     detalles = list(await repo.list_detalles(solicitud_id))
     lineas_payload = [
         {
-            "id_producto": l.producto_id,
-            "cantidad_despachada": l.cantidad_despachada,
-            "barcode": l.barcode,
+            "id_producto": line.producto_id,
+            "cantidad_despachada": line.cantidad_despachada,
+            "barcode": line.barcode,
         }
-        for l in payload.lineas
+        for line in payload.lineas
     ]
     return await _apply_dispatch(
         session=session,

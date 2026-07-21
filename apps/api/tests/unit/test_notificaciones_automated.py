@@ -22,6 +22,7 @@ Cubre:
 Patron: unittest.IsolatedAsyncioTestCase con AsyncEngine SQLite + StaticPool
 (mismo patron que test_ordenes_compra.py y test_solicitudes.py).
 """
+
 from __future__ import annotations
 
 import os
@@ -32,11 +33,17 @@ from uuid import uuid4
 # Configurar el AsyncEngine antes de importar la app
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ENVIRONMENT", "development")
-os.environ.setdefault(
-    "JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX"
-)
+os.environ.setdefault("JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
+from app.core.config import reset_settings_cache  # noqa: E402
+from app.db import models  # noqa: E402, F401
+from app.db.base import Base  # noqa: E402
+from app.db.models.notificaciones import Notificacion, NotificationType  # noqa: E402
+from app.db.models.users import User, UserRole  # noqa: E402
+from app.modules.notificaciones.service import NotificacionesService  # noqa: E402
+from app.modules.ordenes_compra.service import OrdenCompraService  # noqa: E402
+from app.modules.solicitudes.service import SolicitudService  # noqa: E402
 from sqlalchemy import event, select  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
@@ -45,15 +52,6 @@ from sqlalchemy.ext.asyncio import (  # noqa: E402
     create_async_engine,
 )
 from sqlalchemy.pool import StaticPool  # noqa: E402
-
-from app.core.config import reset_settings_cache  # noqa: E402
-from app.db import models  # noqa: E402, F401
-from app.db.base import Base  # noqa: E402
-from app.db.models.notificaciones import NotificationType, Notificacion  # noqa: E402
-from app.db.models.users import User, UserRole  # noqa: E402
-from app.modules.notificaciones.service import NotificacionesService  # noqa: E402
-from app.modules.ordenes_compra.service import OrdenCompraService  # noqa: E402
-from app.modules.solicitudes.service import SolicitudService  # noqa: E402
 
 reset_settings_cache()
 
@@ -78,9 +76,7 @@ def _create_test_engine() -> AsyncEngine:
 # ============================================================ HELPER UTILS
 
 
-async def _notif_for(
-    session: AsyncSession, user_id, tipo: str | None = None
-) -> list[Notificacion]:
+async def _notif_for(session: AsyncSession, user_id, tipo: str | None = None) -> list[Notificacion]:
     """Lee las notificaciones de un usuario (mas recientes primero).
 
     Si ``tipo`` se da, filtra por tipo exacto.
@@ -126,38 +122,64 @@ class NotificacionesServiceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.dest_op_2_id = uuid4()
         now = datetime.now(UTC)
         async with self.session_factory() as s:
-            s.add_all([
-                User(
-                    id=self.admin_id, username="admin_n",
-                    full_name="Admin N", role=UserRole.ADMIN,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                User(
-                    id=self.supervisor_id, username="sup_n",
-                    full_name="Sup N", role=UserRole.SUPERVISOR,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                User(
-                    id=self.origin_op_1_id, username="op1_n",
-                    full_name="Op1 N", role=UserRole.ORIGIN_OPERATOR,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                User(
-                    id=self.origin_op_2_id, username="op2_n",
-                    full_name="Op2 N", role=UserRole.ORIGIN_OPERATOR,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                User(
-                    id=self.dest_op_1_id, username="do1_n",
-                    full_name="Dest1 N", role=UserRole.DESTINATION_OPERATOR,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                User(
-                    id=self.dest_op_2_id, username="do2_n",
-                    full_name="Dest2 N", role=UserRole.DESTINATION_OPERATOR,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-            ])
+            s.add_all(
+                [
+                    User(
+                        id=self.admin_id,
+                        username="admin_n",
+                        full_name="Admin N",
+                        role=UserRole.ADMIN,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    User(
+                        id=self.supervisor_id,
+                        username="sup_n",
+                        full_name="Sup N",
+                        role=UserRole.SUPERVISOR,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    User(
+                        id=self.origin_op_1_id,
+                        username="op1_n",
+                        full_name="Op1 N",
+                        role=UserRole.ORIGIN_OPERATOR,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    User(
+                        id=self.origin_op_2_id,
+                        username="op2_n",
+                        full_name="Op2 N",
+                        role=UserRole.ORIGIN_OPERATOR,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    User(
+                        id=self.dest_op_1_id,
+                        username="do1_n",
+                        full_name="Dest1 N",
+                        role=UserRole.DESTINATION_OPERATOR,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    User(
+                        id=self.dest_op_2_id,
+                        username="do2_n",
+                        full_name="Dest2 N",
+                        role=UserRole.DESTINATION_OPERATOR,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                ]
+            )
             await s.commit()
 
     async def test_notify_users_bulk_insert(self) -> None:
@@ -292,56 +314,81 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
         now = datetime.now(UTC)
 
         async with self.session_factory() as s:
-            s.add_all([
-                User(
-                    id=self.admin_id, username="admin_s",
-                    full_name="Admin S", role=UserRole.ADMIN,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                User(
-                    id=self.supervisor_id, username="sup_s",
-                    full_name="Sup S", role=UserRole.SUPERVISOR,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                User(
-                    id=self.origin_op_id, username="op_s",
-                    full_name="Op S", role=UserRole.ORIGIN_OPERATOR,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                User(
-                    id=self.dest_op_id, username="do_s",
-                    full_name="Dest S", role=UserRole.DESTINATION_OPERATOR,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                Warehouse(
-                    id=self.principal_id, code="PRINCIPAL",
-                    name="Principal", warehouse_type="principal",
-                    is_active=True,
-                ),
-                Warehouse(
-                    id=self.aux_id, code="AUX1",
-                    name="Aux1", warehouse_type="auxiliar",
-                    is_active=True,
-                ),
-                Product(
-                    id=self.product_id, sku="SKU-NOTIF-001",
-                    name="Producto Notif", unit="unidad", is_active=True,
-                ),
-            ])
+            s.add_all(
+                [
+                    User(
+                        id=self.admin_id,
+                        username="admin_s",
+                        full_name="Admin S",
+                        role=UserRole.ADMIN,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    User(
+                        id=self.supervisor_id,
+                        username="sup_s",
+                        full_name="Sup S",
+                        role=UserRole.SUPERVISOR,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    User(
+                        id=self.origin_op_id,
+                        username="op_s",
+                        full_name="Op S",
+                        role=UserRole.ORIGIN_OPERATOR,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    User(
+                        id=self.dest_op_id,
+                        username="do_s",
+                        full_name="Dest S",
+                        role=UserRole.DESTINATION_OPERATOR,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    Warehouse(
+                        id=self.principal_id,
+                        code="PRINCIPAL",
+                        name="Principal",
+                        warehouse_type="principal",
+                        is_active=True,
+                    ),
+                    Warehouse(
+                        id=self.aux_id,
+                        code="AUX1",
+                        name="Aux1",
+                        warehouse_type="auxiliar",
+                        is_active=True,
+                    ),
+                    Product(
+                        id=self.product_id,
+                        sku="SKU-NOTIF-001",
+                        name="Producto Notif",
+                        unit="unidad",
+                        is_active=True,
+                    ),
+                ]
+            )
             await s.flush()  # Insertar users/warehouses/products primero
             # Stock suficiente en Principal para que dispatch funcione.
-            s.add(StockLevel(
-                warehouse_id=self.principal_id,
-                product_id=self.product_id,
-                quantity=Decimal("100"),
-                min_quantity=Decimal("5"),
-                max_quantity=Decimal("500"),
-            ))
+            s.add(
+                StockLevel(
+                    warehouse_id=self.principal_id,
+                    product_id=self.product_id,
+                    quantity=Decimal("100"),
+                    min_quantity=Decimal("5"),
+                    max_quantity=Decimal("500"),
+                )
+            )
             await s.commit()
 
-    async def _count_notifs(
-        self, user_id, tipo: str
-    ) -> int:
+    async def _count_notifs(self, user_id, tipo: str) -> int:
         async with self.session_factory() as s:
             notifs = await _notif_for(s, user_id, tipo)
             return len(notifs)
@@ -350,38 +397,43 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
         """CREATE solicitud: notifica a admin+supervisor excluyendo al actor."""
         async with self.session_factory() as s:
             service = SolicitudService(s)
-            view = await service.create_solicitud(
+            await service.create_solicitud(
                 id_bodega_origen=self.aux_id,
                 id_bodega_destino=self.principal_id,
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_solicitada": Decimal("10"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_solicitada": Decimal("10"),
+                    }
+                ],
                 prioridad="normal",
                 notas="test",
                 user_id=self.origin_op_id,  # origin_op crea
             )
             await s.commit()
-        codigo = view.codigo
 
         # admin y supervisor reciben la notificacion
         self.assertEqual(
             await self._count_notifs(self.admin_id, NotificationType.SOLICITUD_CREATED.value),
-            1, "admin recibe solicitud.created",
+            1,
+            "admin recibe solicitud.created",
         )
         self.assertEqual(
             await self._count_notifs(self.supervisor_id, NotificationType.SOLICITUD_CREATED.value),
-            1, "supervisor recibe solicitud.created",
+            1,
+            "supervisor recibe solicitud.created",
         )
         # origin_op NO recibe (es el actor)
         self.assertEqual(
             await self._count_notifs(self.origin_op_id, NotificationType.SOLICITUD_CREATED.value),
-            0, "origin_op excluido como actor",
+            0,
+            "origin_op excluido como actor",
         )
         # dest_op NO recibe
         self.assertEqual(
             await self._count_notifs(self.dest_op_id, NotificationType.SOLICITUD_CREATED.value),
-            0, "dest_op no recibe solicitud.created",
+            0,
+            "dest_op no recibe solicitud.created",
         )
 
     async def test_approve_solicitud_notifica_origin_operator(self) -> None:
@@ -391,15 +443,18 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             view = await service.create_solicitud(
                 id_bodega_origen=self.aux_id,
                 id_bodega_destino=self.principal_id,
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_solicitada": Decimal("10"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_solicitada": Decimal("10"),
+                    }
+                ],
                 user_id=self.origin_op_id,
             )
             await s.commit()
-            view2 = await service.approve_solicitud(
-                view.id, user_id=self.admin_id,
+            await service.approve_solicitud(
+                view.id,
+                user_id=self.admin_id,
             )
             await s.commit()
 
@@ -421,10 +476,12 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             view = await service.create_solicitud(
                 id_bodega_origen=self.aux_id,
                 id_bodega_destino=self.principal_id,
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_solicitada": Decimal("10"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_solicitada": Decimal("10"),
+                    }
+                ],
                 user_id=self.origin_op_id,
             )
             await s.commit()
@@ -440,7 +497,9 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
         )
         # origin_op NO recibe (es el actor)
         self.assertEqual(
-            await self._count_notifs(self.origin_op_id, NotificationType.SOLICITUD_DISPATCHED.value),
+            await self._count_notifs(
+                self.origin_op_id, NotificationType.SOLICITUD_DISPATCHED.value
+            ),
             0,
         )
 
@@ -451,10 +510,12 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             view = await service.create_solicitud(
                 id_bodega_origen=self.aux_id,
                 id_bodega_destino=self.principal_id,
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_solicitada": Decimal("10"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_solicitada": Decimal("10"),
+                    }
+                ],
                 user_id=self.origin_op_id,
             )
             await s.commit()
@@ -464,10 +525,12 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             await s.commit()
             await service.receive_solicitud(
                 view.id,
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_recibida": Decimal("10"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_recibida": Decimal("10"),
+                    }
+                ],
                 notas="Recibido OK",
                 user_id=self.dest_op_id,  # dest_op recibe
             )
@@ -495,15 +558,19 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             view = await service.create_solicitud(
                 id_bodega_origen=self.aux_id,
                 id_bodega_destino=self.principal_id,
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_solicitada": Decimal("10"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_solicitada": Decimal("10"),
+                    }
+                ],
                 user_id=self.origin_op_id,
             )
             await s.commit()
             await service.reject_solicitud(
-                view.id, motivo="stock bajo", user_id=self.admin_id,
+                view.id,
+                motivo="stock bajo",
+                user_id=self.admin_id,
             )
             await s.commit()
 
@@ -525,15 +592,18 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             view = await service.create_solicitud(
                 id_bodega_origen=self.aux_id,
                 id_bodega_destino=self.principal_id,
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_solicitada": Decimal("10"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_solicitada": Decimal("10"),
+                    }
+                ],
                 user_id=self.origin_op_id,
             )
             await s.commit()
             await service.cancel_solicitud(
-                view.id, user_id=self.origin_op_id,
+                view.id,
+                user_id=self.origin_op_id,
             )
             await s.commit()
 
@@ -543,7 +613,9 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
         self.assertEqual(
-            await self._count_notifs(self.supervisor_id, NotificationType.SOLICITUD_CANCELLED.value),
+            await self._count_notifs(
+                self.supervisor_id, NotificationType.SOLICITUD_CANCELLED.value
+            ),
             1,
         )
         # origin_op NO recibe (es el actor)
@@ -560,10 +632,12 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             view = await service.create_solicitud(
                 id_bodega_origen=self.aux_id,
                 id_bodega_destino=self.principal_id,
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_solicitada": Decimal("10"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_solicitada": Decimal("10"),
+                    }
+                ],
                 user_id=self.origin_op_id,  # CREATE por origin_op
             )
             await s.commit()
@@ -573,10 +647,12 @@ class SolicitudServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             await s.commit()
             await service.receive_solicitud(
                 view.id,
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_recibida": Decimal("10"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_recibida": Decimal("10"),
+                    }
+                ],
                 user_id=self.dest_op_id,  # RECEIVE por dest_op
             )
             await s.commit()
@@ -654,31 +730,48 @@ class OrdenCompraServiceNotifTests(unittest.IsolatedAsyncioTestCase):
         now = datetime.now(UTC)
 
         async with self.session_factory() as s:
-            s.add_all([
-                User(
-                    id=self.admin_id, username="admin_oc",
-                    full_name="Admin OC", role=UserRole.ADMIN,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                User(
-                    id=self.supervisor_id, username="sup_oc",
-                    full_name="Sup OC", role=UserRole.SUPERVISOR,
-                    password_hash="x", is_active=True, created_at=now,
-                ),
-                Warehouse(
-                    id=self.principal_id, code="PRINCIPAL_OC",
-                    name="Principal OC", warehouse_type="principal",
-                    is_active=True,
-                ),
-                Supervisor(
-                    id=self.sup_id_oc, nombre="Sup Ext",
-                    email="ext@bodega.example", activo=True,
-                ),
-                Product(
-                    id=self.product_id, sku="SKU-OC-N",
-                    name="Producto OC N", unit="unidad", is_active=True,
-                ),
-            ])
+            s.add_all(
+                [
+                    User(
+                        id=self.admin_id,
+                        username="admin_oc",
+                        full_name="Admin OC",
+                        role=UserRole.ADMIN,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    User(
+                        id=self.supervisor_id,
+                        username="sup_oc",
+                        full_name="Sup OC",
+                        role=UserRole.SUPERVISOR,
+                        password_hash="x",
+                        is_active=True,
+                        created_at=now,
+                    ),
+                    Warehouse(
+                        id=self.principal_id,
+                        code="PRINCIPAL_OC",
+                        name="Principal OC",
+                        warehouse_type="principal",
+                        is_active=True,
+                    ),
+                    Supervisor(
+                        id=self.sup_id_oc,
+                        nombre="Sup Ext",
+                        email="ext@bodega.example",
+                        activo=True,
+                    ),
+                    Product(
+                        id=self.product_id,
+                        sku="SKU-OC-N",
+                        name="Producto OC N",
+                        unit="unidad",
+                        is_active=True,
+                    ),
+                ]
+            )
             await s.commit()
 
     async def _crear_oc(self) -> object:
@@ -688,11 +781,13 @@ class OrdenCompraServiceNotifTests(unittest.IsolatedAsyncioTestCase):
                 id_bodega_principal=self.principal_id,
                 id_supervisor=self.sup_id_oc,
                 proveedor_nombre="Prov Test",
-                lineas=[{
-                    "id_producto": self.product_id,
-                    "cantidad_pedida": Decimal("10"),
-                    "costo_unitario_pactado": Decimal("100"),
-                }],
+                lineas=[
+                    {
+                        "id_producto": self.product_id,
+                        "cantidad_pedida": Decimal("10"),
+                        "costo_unitario_pactado": Decimal("100"),
+                    }
+                ],
             )
             await s.commit()
         return view
@@ -702,18 +797,21 @@ class OrdenCompraServiceNotifTests(unittest.IsolatedAsyncioTestCase):
         async with self.session_factory() as s:
             service = OrdenCompraService(s)
             v, _token, _outbox = await service.enviar_correo(
-                view.id, user_id=self.admin_id,
+                view.id,
+                user_id=self.admin_id,
             )
             await s.commit()
 
         # admin excluido (es actor), supervisor recibe
         async with self.session_factory() as s:
             admin_n = await _notif_for(
-                s, self.admin_id,
+                s,
+                self.admin_id,
                 NotificationType.ORDEN_COMPRA_ENVIADA.value,
             )
             sup_n = await _notif_for(
-                s, self.supervisor_id,
+                s,
+                self.supervisor_id,
                 NotificationType.ORDEN_COMPRA_ENVIADA.value,
             )
         self.assertEqual(len(admin_n), 0, "admin excluido")
@@ -731,11 +829,13 @@ class OrdenCompraServiceNotifTests(unittest.IsolatedAsyncioTestCase):
         # supervisor excluido (es actor), admin recibe
         async with self.session_factory() as s:
             sup_n = await _notif_for(
-                s, self.supervisor_id,
+                s,
+                self.supervisor_id,
                 NotificationType.ORDEN_COMPRA_APROBADA.value,
             )
             admin_n = await _notif_for(
-                s, self.admin_id,
+                s,
+                self.admin_id,
                 NotificationType.ORDEN_COMPRA_APROBADA.value,
             )
         self.assertEqual(len(sup_n), 0, "supervisor excluido")
@@ -748,7 +848,8 @@ class OrdenCompraServiceNotifTests(unittest.IsolatedAsyncioTestCase):
             await service.enviar_correo(view.id, user_id=self.admin_id)
             await s.commit()
             await service.rechazar_orden(
-                view.id, motivo="Fuera de presupuesto",
+                view.id,
+                motivo="Fuera de presupuesto",
                 user_id=self.supervisor_id,
             )
             await s.commit()
@@ -756,7 +857,8 @@ class OrdenCompraServiceNotifTests(unittest.IsolatedAsyncioTestCase):
         # admin recibe
         async with self.session_factory() as s:
             admin_n = await _notif_for(
-                s, self.admin_id,
+                s,
+                self.admin_id,
                 NotificationType.ORDEN_COMPRA_RECHAZADA.value,
             )
         self.assertEqual(len(admin_n), 1)
@@ -776,7 +878,8 @@ class OrdenCompraServiceNotifTests(unittest.IsolatedAsyncioTestCase):
         # admin recibe orden_compra.recibida
         async with self.session_factory() as s:
             admin_n = await _notif_for(
-                s, self.admin_id,
+                s,
+                self.admin_id,
                 NotificationType.ORDEN_COMPRA_RECIBIDA.value,
             )
         self.assertEqual(len(admin_n), 1)
@@ -792,17 +895,19 @@ class OrdenCompraServiceNotifTests(unittest.IsolatedAsyncioTestCase):
         # Aprobar via token (sin user_id)
         async with self.session_factory() as s:
             service = OrdenCompraService(s)
-            v2 = await service.aprobar_con_token(token, "approve", motivo=None)
+            await service.aprobar_con_token(token, "approve", motivo=None)
             await s.commit()
 
         # Tanto admin como supervisor reciben (no hay actor que excluir)
         async with self.session_factory() as s:
             admin_n = await _notif_for(
-                s, self.admin_id,
+                s,
+                self.admin_id,
                 NotificationType.ORDEN_COMPRA_APROBADA.value,
             )
             sup_n = await _notif_for(
-                s, self.supervisor_id,
+                s,
+                self.supervisor_id,
                 NotificationType.ORDEN_COMPRA_APROBADA.value,
             )
         # admin ya recibio la de enviar_correo, pero aprobar_orden via

@@ -8,6 +8,7 @@ Reglas de negocio:
 - id_bodega debe apuntar a una bodega activa.
 - DELETE es soft: marca ``is_active=False``.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -39,9 +40,7 @@ class UbicacionService:
             raise UbicacionNotFoundError(str(ubicacion_id))
         return ubicacion
 
-    def create_ubicacion(
-        self, id_bodega: uuid.UUID, payload: UbicacionCreate
-    ) -> UbicacionRecord:
+    def create_ubicacion(self, id_bodega: uuid.UUID, payload: UbicacionCreate) -> UbicacionRecord:
         if self._warehouses.get_by_id(id_bodega) is None:
             raise UbicacionNotFoundError(str(id_bodega))
 

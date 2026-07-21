@@ -12,6 +12,7 @@ El router es liviano (Regla de Oro): validacion de input via Pydantic,
 logica en ``CategoryService``. Errores de dominio se traducen a HTTP
 vía ``DomainError`` handler registrado en ``main.py``.
 """
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -115,7 +116,11 @@ def update_category(
     return category
 
 
-@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,  # explicito: FastAPI >= 0.116 confunde -> None con NoneType
+)
 def delete_category(
     category_id: UUID,
     user=Depends(require_roles("admin", "supervisor")),

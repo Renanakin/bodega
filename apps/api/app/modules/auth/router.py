@@ -38,15 +38,17 @@ def login(
     return AuthSessionResponse(token=session.token, expires_at=session.expires_at)
 
 
-@router.post("/logout", status_code=204)
+@router.post(
+    "/logout",
+    status_code=204,
+    response_class=Response,  # explicito para FastAPI >= 0.116
+)
 def logout(
-    response: Response,
     authorization: str | None = Header(default=None),
     service: AuthService = Depends(get_auth_service),
 ) -> Response:
     service.logout(_extract_bearer_token(authorization))
-    response.status_code = 204
-    return response
+    return Response(status_code=204)
 
 
 @router.get("/me", response_model=AuthUserResponse)

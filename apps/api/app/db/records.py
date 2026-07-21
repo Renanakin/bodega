@@ -8,6 +8,7 @@ stock, transfers, auth.
 R5: nombres auto-documentados (el nombre del record describe la
 entidad que representa).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -4,18 +4,17 @@ Mapea el modelo SolicitudRecarga al namespace legacy de Transfer
 (usado por los endpoints antiguos que conviven con solicitudes
 durante la ventana de migracion de 6 meses, ADR-0003).
 """
+
 from __future__ import annotations
 
 import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db.models.products import Product
 from app.db.models.solicitudes import SolicitudEstado
 from app.db.models.warehouses import Warehouse
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.solicitudes.schemas import (
@@ -38,7 +37,7 @@ _STATUS_MAP = {
 
 async def get_derived_transfer(
     session: AsyncSession, repo, codigo_legacy: str
-) -> "TransferDerivedResponse | None":
+) -> TransferDerivedResponse | None:
     """Vista derivada de una solicitud como Transfer (compat legacy)."""
     from app.modules.solicitudes.schemas import (
         TransferDerivedLinea,

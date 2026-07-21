@@ -10,6 +10,7 @@ Endpoints:
 - PATCH  /api/v1/supervisores/{id}          - actualizar parcial (admin only)
 - DELETE /api/v1/supervisores/{id}          - soft delete (admin only)
 """
+
 from __future__ import annotations
 
 import uuid

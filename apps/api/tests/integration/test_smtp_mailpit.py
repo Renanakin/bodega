@@ -13,9 +13,11 @@ Requisitos:
 Si Mailpit no esta disponible, los tests se skippean automaticamente
 (``pytest.skip`` en el fixture).
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 import uuid
 from datetime import UTC, datetime
@@ -23,8 +25,6 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.config import get_settings
 from app.core.security import issue_approval_token
 from app.db.models.ordenes_compra import (
@@ -36,10 +36,9 @@ from app.db.models.ordenes_compra import (
 from app.db.models.products import Product
 from app.db.models.supervisores import Supervisor
 from app.db.models.warehouses import Warehouse
-from app.modules.notifications.service import NotificationsService
-from app.modules.notifications.smtp import send_email, SmtpError
-from app.modules.notifications.templates import render_with_inline_css, render_template
-
+from app.modules.notifications.smtp import SmtpError, send_email
+from app.modules.notifications.templates import render_template, render_with_inline_css
+from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.integration
 
@@ -52,7 +51,7 @@ def _mailpit_reachable(host: str, port: int, timeout: float = 1.0) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
-    except (OSError, socket.timeout):
+    except (TimeoutError, OSError):
         return False
 
 
@@ -88,9 +87,7 @@ def mailpit_api_required() -> None:
 
 
 class TestPlantillaJinja2:
-    def test_plantilla_se_renderiza_con_contexto_correcto(
-        self, mailpit_api_required: None
-    ) -> None:
+    def test_plantilla_se_renderiza_con_contexto_correcto(self, mailpit_api_required: None) -> None:
         """Render de la plantilla con todos los campos del context."""
         ctx = {
             "subject": "OC-0042 requiere aprobacion",
@@ -137,9 +134,7 @@ class TestPlantillaJinja2:
         # El bloque del footer menciona el sistema.
         assert "Bodegaje" in html
 
-    def test_premailer_aplica_css_inline(
-        self, mailpit_api_required: None
-    ) -> None:
+    def test_premailer_aplica_css_inline(self, mailpit_api_required: None) -> None:
         """Si premailer esta disponible, el CSS de ``<style>`` se inlinea."""
         ctx = {
             "subject": "X",
@@ -171,23 +166,17 @@ class TestPlantillaJinja2:
 
 class TestEnvioSmtpReal:
     @pytest.mark.asyncio
-    async def test_envio_email_real_a_mailpit(
-        self, mailpit_api_required: None
-    ) -> None:
+    async def test_envio_email_real_a_mailpit(self, mailpit_api_required: None) -> None:
         """Envia un email real a Mailpit y verifica via API de Mailpit."""
         # Antes de enviar, vaciamos la cola de Mailpit via su API HTTP.
         async with httpx.AsyncClient(base_url="http://localhost:8025", timeout=5) as http:
-            try:
-                await http.delete("/api/v1/messages")
-            except httpx.HTTPError:
+            with contextlib.suppress(httpx.HTTPError):
                 # Mailpit no expone la API, pero el test sigue si SMTP anda.
-                pass
+                await http.delete("/api/v1/messages")
 
         to_email = f"test-{uuid.uuid4().hex[:8]}@bodega.example"
         subject = f"E2E Fase 7 - {uuid.uuid4().hex[:8]}"
-        body_html = (
-            f"<h1>OC-0001</h1><p>Body test {uuid.uuid4()}</p>"
-        )
+        body_html = f"<h1>OC-0001</h1><p>Body test {uuid.uuid4()}</p>"
         await send_email(
             to_email=to_email,
             subject=subject,
@@ -213,15 +202,11 @@ class TestEnvioSmtpReal:
                 pytest.skip("Mailpit API no disponible; SMTP probe fue OK")
 
     @pytest.mark.asyncio
-    async def test_plantilla_jinja2_se_envia_a_mailpit(
-        self, mailpit_api_required: None
-    ) -> None:
+    async def test_plantilla_jinja2_se_envia_a_mailpit(self, mailpit_api_required: None) -> None:
         """Renderiza plantilla + envia a Mailpit, verifica que llega."""
         async with httpx.AsyncClient(base_url="http://localhost:8025", timeout=5) as http:
-            try:
+            with contextlib.suppress(httpx.HTTPError):
                 await http.delete("/api/v1/messages")
-            except httpx.HTTPError:
-                pass
 
         token_test = uuid.uuid4().hex
         ctx = {
@@ -267,15 +252,11 @@ class TestEnvioSmtpReal:
                 ), "Mailpit no recibio el email renderizado"
 
     @pytest.mark.asyncio
-    async def test_token_aprobacion_esta_en_el_body_html(
-        self, mailpit_api_required: None
-    ) -> None:
+    async def test_token_aprobacion_esta_en_el_body_html(self, mailpit_api_required: None) -> None:
         """El token HMAC de aprobacion aparece en el HTML enviado."""
         async with httpx.AsyncClient(base_url="http://localhost:8025", timeout=5) as http:
-            try:
+            with contextlib.suppress(httpx.HTTPError):
                 await http.delete("/api/v1/messages")
-            except httpx.HTTPError:
-                pass
 
         # Generar token HMAC (ADR-0005).
         orden_id = str(uuid.uuid4())
@@ -288,10 +269,7 @@ class TestEnvioSmtpReal:
         # El token NO debe aparecer en claro en el subject (solo en el body).
         async with httpx.AsyncClient(base_url="http://localhost:8025", timeout=5) as http:
             r = await http.get("/api/v1/messages")
-            if r.status_code == 200:
-                before = len(r.json().get("messages", []))
-            else:
-                before = 0
+            len(r.json().get("messages", [])) if r.status_code == 200 else 0
 
         ctx = {
             "subject": "Token Check",
@@ -352,12 +330,8 @@ class TestAprobacionFlujoCompleto:
         mailpit_required: None,
     ) -> None:
         """E2E: crear OC + enviar email + aprobar via token -> estado aprobado."""
-        wh = Warehouse(
-            id=uuid.uuid4(), code="W-F7", name="W", warehouse_type="principal"
-        )
-        sup = Supervisor(
-            id=uuid.uuid4(), nombre="E2E Test", email="e2e@x.com", activo=True
-        )
+        wh = Warehouse(id=uuid.uuid4(), code="W-F7", name="W", warehouse_type="principal")
+        sup = Supervisor(id=uuid.uuid4(), nombre="E2E Test", email="e2e@x.com", activo=True)
         p = Product(id=uuid.uuid4(), sku="F7-1", name="Prod", unit="u")
         async_session.add_all([wh, sup, p])
         await async_session.commit()
@@ -399,15 +373,14 @@ class TestAprobacionFlujoCompleto:
         )
 
         # Enviar email a Mailpit (no falla aunque la API no este, SMTP ya
-        # fue probado por el fixture).
-        try:
+        # fue probado por el fixture). El foco del test es la aprobacion,
+        # no el SMTP, asi que suprimimos errores de envio.
+        with contextlib.suppress(SmtpError):
             await send_email(
                 to_email=sup.email,
                 subject=f"OC {oc.codigo}",
                 body_html=f"<a href='http://localhost/ordenes-compra/aprobar/{token}'>Aprobar</a>",
             )
-        except SmtpError:
-            pass  # El foco del test es la aprobacion, no el SMTP.
 
         # Aprobar via token (sin auth, sin red).
         from app.modules.ordenes_compra.service import OrdenCompraService

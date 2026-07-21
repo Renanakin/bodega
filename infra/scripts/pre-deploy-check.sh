@@ -61,7 +61,11 @@ fi
 # --- Check 3: Tests unitarios pasan -----------------------------------
 echo "[3/10] Corriendo tests unitarios (puede tardar ~1 min)..."
 cd "$REPO_ROOT/apps/api"
-if python -m pytest tests/unit -q --no-header --tb=line -x 2>&1 | tail -5; then
+# Resolver el binario de Python disponible (Linux: python3, Windows: py).
+PYTHON_BIN="$(command -v python3 || command -v python || command -v py)"
+if [ -z "$PYTHON_BIN" ]; then
+    fail "No se encontro Python (python3, python, ni py en PATH)"
+elif "$PYTHON_BIN" -m pytest tests/unit -q --no-header --tb=line -x 2>&1 | tail -5; then
     pass "Tests unitarios OK"
 else
     fail "Tests unitarios fallaron"

@@ -16,6 +16,7 @@ Cubre:
 Patron: unittest.IsolatedAsyncioTestCase con AsyncEngine SQLite
 + StaticPool (mismo patron que test_solicitudes.py).
 """
+
 from __future__ import annotations
 
 import os
@@ -27,19 +28,8 @@ from uuid import uuid4
 # Configurar el AsyncEngine antes de importar la app
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ENVIRONMENT", "development")
-os.environ.setdefault(
-    "JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX"
-)
+os.environ.setdefault("JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
-
-from sqlalchemy import event  # noqa: E402
-from sqlalchemy.ext.asyncio import (  # noqa: E402
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from app.core.config import reset_settings_cache  # noqa: E402
 from app.db import models  # noqa: E402, F401
@@ -49,7 +39,14 @@ from app.modules.solicitudes.replenishment import (  # noqa: E402
     _calcular_cantidad,
     _calcular_prioridad,
 )
-
+from sqlalchemy import event  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import StaticPool  # noqa: E402
 
 reset_settings_cache()
 
@@ -77,6 +74,7 @@ class ReplenishmentTestBase(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self) -> None:
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
         self.engine = _create_test_engine()
         async with self.engine.begin() as conn:
@@ -89,6 +87,7 @@ class ReplenishmentTestBase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.engine.dispose()
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
 
     async def _seed_demo_data(self) -> None:
@@ -110,9 +109,9 @@ class ReplenishmentTestBase(unittest.IsolatedAsyncioTestCase):
         Stock en AUX-2: sin stock bajo minimo.
         Stock en BOX-1 (hijo de AUX-1): sin stock bajo minimo.
         """
-        from app.db.models.warehouses import Warehouse
-        from app.db.models.products import Product
         from app.db.models.inventory import StockLevel
+        from app.db.models.products import Product
+        from app.db.models.warehouses import Warehouse
 
         # Warehouses
         self.principal_id = uuid4()
@@ -123,37 +122,39 @@ class ReplenishmentTestBase(unittest.IsolatedAsyncioTestCase):
         async with self.session_factory() as session:
             # Etapa 1: warehouses. Flush para que los FKs de productos/stock
             # puedan resolver las referencias.
-            session.add_all([
-                Warehouse(
-                    id=self.principal_id,
-                    code="PRINCIPAL",
-                    name="Bodega Principal",
-                    warehouse_type="principal",
-                    is_active=True,
-                ),
-                Warehouse(
-                    id=self.aux1_id,
-                    code="AUX-1",
-                    name="Auxiliar Taller 1",
-                    warehouse_type="auxiliar",
-                    is_active=True,
-                ),
-                Warehouse(
-                    id=self.aux2_id,
-                    code="AUX-2",
-                    name="Auxiliar Taller 2",
-                    warehouse_type="auxiliar",
-                    is_active=True,
-                ),
-                Warehouse(
-                    id=self.box1_id,
-                    code="BOX-1",
-                    name="Box Mecanico 1",
-                    warehouse_type="mecanico_box",
-                    is_active=True,
-                    parent_warehouse_id=self.aux1_id,
-                ),
-            ])
+            session.add_all(
+                [
+                    Warehouse(
+                        id=self.principal_id,
+                        code="PRINCIPAL",
+                        name="Bodega Principal",
+                        warehouse_type="principal",
+                        is_active=True,
+                    ),
+                    Warehouse(
+                        id=self.aux1_id,
+                        code="AUX-1",
+                        name="Auxiliar Taller 1",
+                        warehouse_type="auxiliar",
+                        is_active=True,
+                    ),
+                    Warehouse(
+                        id=self.aux2_id,
+                        code="AUX-2",
+                        name="Auxiliar Taller 2",
+                        warehouse_type="auxiliar",
+                        is_active=True,
+                    ),
+                    Warehouse(
+                        id=self.box1_id,
+                        code="BOX-1",
+                        name="Box Mecanico 1",
+                        warehouse_type="mecanico_box",
+                        is_active=True,
+                        parent_warehouse_id=self.aux1_id,
+                    ),
+                ]
+            )
             await session.flush()
 
             # Etapa 2: productos. Flush antes de los stock_levels.
@@ -163,62 +164,119 @@ class ReplenishmentTestBase(unittest.IsolatedAsyncioTestCase):
             self.p4_id = uuid4()
             self.p5_id = uuid4()
             self.p_inactivo_id = uuid4()
-            session.add_all([
-                Product(id=self.p1_id, sku="SKU-001", name="Filtro de aire", unit="unidad", is_active=True),
-                Product(id=self.p2_id, sku="SKU-002", name="Aceite 5W30", unit="litro", is_active=True),
-                Product(id=self.p3_id, sku="SKU-003", name="Bujia", unit="unidad", is_active=True),
-                Product(id=self.p4_id, sku="SKU-004", name="Pastilla freno", unit="unidad", is_active=True),
-                Product(id=self.p5_id, sku="SKU-005", name="Refrigerante", unit="litro", is_active=True),
-                Product(id=self.p_inactivo_id, sku="SKU-INACTIVO", name="Obsoleto", unit="unidad", is_active=False),
-            ])
+            session.add_all(
+                [
+                    Product(
+                        id=self.p1_id,
+                        sku="SKU-001",
+                        name="Filtro de aire",
+                        unit="unidad",
+                        is_active=True,
+                    ),
+                    Product(
+                        id=self.p2_id,
+                        sku="SKU-002",
+                        name="Aceite 5W30",
+                        unit="litro",
+                        is_active=True,
+                    ),
+                    Product(
+                        id=self.p3_id, sku="SKU-003", name="Bujia", unit="unidad", is_active=True
+                    ),
+                    Product(
+                        id=self.p4_id,
+                        sku="SKU-004",
+                        name="Pastilla freno",
+                        unit="unidad",
+                        is_active=True,
+                    ),
+                    Product(
+                        id=self.p5_id,
+                        sku="SKU-005",
+                        name="Refrigerante",
+                        unit="litro",
+                        is_active=True,
+                    ),
+                    Product(
+                        id=self.p_inactivo_id,
+                        sku="SKU-INACTIVO",
+                        name="Obsoleto",
+                        unit="unidad",
+                        is_active=False,
+                    ),
+                ]
+            )
             await session.flush()
 
             now = datetime.now(UTC)
             # AUX-1: varios stocks bajo minimo + normales
-            session.add_all([
-                # p1: bajo minimo, ratio 0.3 → prioridad 'alta', sin max → fallback min*2
-                StockLevel(
-                    warehouse_id=self.aux1_id, product_id=self.p1_id,
-                    quantity=Decimal("3"), min_quantity=Decimal("10"),
-                    max_quantity=None, updated_at=now,
-                ),
-                # p2: bajo minimo, ratio 0.5, max=50 → sugerido = 50 - 5 = 45
-                StockLevel(
-                    warehouse_id=self.aux1_id, product_id=self.p2_id,
-                    quantity=Decimal("5"), min_quantity=Decimal("10"),
-                    max_quantity=Decimal("50"), updated_at=now,
-                ),
-                # p3: sobre minimo, no debe procesarse
-                StockLevel(
-                    warehouse_id=self.aux1_id, product_id=self.p3_id,
-                    quantity=Decimal("8"), min_quantity=Decimal("5"),
-                    max_quantity=None, updated_at=now,
-                ),
-                # p4: bajo minimo, ratio 0.4 → 'alta', sin max
-                StockLevel(
-                    warehouse_id=self.aux1_id, product_id=self.p4_id,
-                    quantity=Decimal("2"), min_quantity=Decimal("5"),
-                    max_quantity=None, updated_at=now,
-                ),
-                # p5: sobre minimo, no debe procesarse
-                StockLevel(
-                    warehouse_id=self.aux1_id, product_id=self.p5_id,
-                    quantity=Decimal("12"), min_quantity=Decimal("5"),
-                    max_quantity=None, updated_at=now,
-                ),
-                # p_inactivo: bajo minimo pero producto inactivo → skip
-                StockLevel(
-                    warehouse_id=self.aux1_id, product_id=self.p_inactivo_id,
-                    quantity=Decimal("1"), min_quantity=Decimal("5"),
-                    max_quantity=None, updated_at=now,
-                ),
-                # AUX-2: nada bajo minimo
-                StockLevel(
-                    warehouse_id=self.aux2_id, product_id=self.p1_id,
-                    quantity=Decimal("50"), min_quantity=Decimal("5"),
-                    max_quantity=None, updated_at=now,
-                ),
-            ])
+            session.add_all(
+                [
+                    # p1: bajo minimo, ratio 0.3 → prioridad 'alta', sin max → fallback min*2
+                    StockLevel(
+                        warehouse_id=self.aux1_id,
+                        product_id=self.p1_id,
+                        quantity=Decimal("3"),
+                        min_quantity=Decimal("10"),
+                        max_quantity=None,
+                        updated_at=now,
+                    ),
+                    # p2: bajo minimo, ratio 0.5, max=50 → sugerido = 50 - 5 = 45
+                    StockLevel(
+                        warehouse_id=self.aux1_id,
+                        product_id=self.p2_id,
+                        quantity=Decimal("5"),
+                        min_quantity=Decimal("10"),
+                        max_quantity=Decimal("50"),
+                        updated_at=now,
+                    ),
+                    # p3: sobre minimo, no debe procesarse
+                    StockLevel(
+                        warehouse_id=self.aux1_id,
+                        product_id=self.p3_id,
+                        quantity=Decimal("8"),
+                        min_quantity=Decimal("5"),
+                        max_quantity=None,
+                        updated_at=now,
+                    ),
+                    # p4: bajo minimo, ratio 0.4 → 'alta', sin max
+                    StockLevel(
+                        warehouse_id=self.aux1_id,
+                        product_id=self.p4_id,
+                        quantity=Decimal("2"),
+                        min_quantity=Decimal("5"),
+                        max_quantity=None,
+                        updated_at=now,
+                    ),
+                    # p5: sobre minimo, no debe procesarse
+                    StockLevel(
+                        warehouse_id=self.aux1_id,
+                        product_id=self.p5_id,
+                        quantity=Decimal("12"),
+                        min_quantity=Decimal("5"),
+                        max_quantity=None,
+                        updated_at=now,
+                    ),
+                    # p_inactivo: bajo minimo pero producto inactivo → skip
+                    StockLevel(
+                        warehouse_id=self.aux1_id,
+                        product_id=self.p_inactivo_id,
+                        quantity=Decimal("1"),
+                        min_quantity=Decimal("5"),
+                        max_quantity=None,
+                        updated_at=now,
+                    ),
+                    # AUX-2: nada bajo minimo
+                    StockLevel(
+                        warehouse_id=self.aux2_id,
+                        product_id=self.p1_id,
+                        quantity=Decimal("50"),
+                        min_quantity=Decimal("5"),
+                        max_quantity=None,
+                        updated_at=now,
+                    ),
+                ]
+            )
             await session.commit()
 
     def _new_session(self) -> AsyncSession:
@@ -230,68 +288,104 @@ class TestReplenishmentHelpers(unittest.IsolatedAsyncioTestCase):
 
     def test_calcular_cantidad_con_max_definido(self) -> None:
         """max - actual cuando max esta definido."""
-        from app.db.models.inventory import StockLevel
         from uuid import uuid4
+
+        from app.db.models.inventory import StockLevel
+
         sl = StockLevel(
-            id=uuid4(), warehouse_id=uuid4(), product_id=uuid4(),
-            quantity=Decimal("5"), min_quantity=Decimal("10"),
-            max_quantity=Decimal("50"), updated_at=datetime.now(UTC),
+            id=uuid4(),
+            warehouse_id=uuid4(),
+            product_id=uuid4(),
+            quantity=Decimal("5"),
+            min_quantity=Decimal("10"),
+            max_quantity=Decimal("50"),
+            updated_at=datetime.now(UTC),
         )
         self.assertEqual(_calcular_cantidad(sl), Decimal("45"))
 
     def test_calcular_cantidad_sin_max_usa_min_x2(self) -> None:
         """Si max es NULL: min*2 - actual."""
-        from app.db.models.inventory import StockLevel
         from uuid import uuid4
+
+        from app.db.models.inventory import StockLevel
+
         sl = StockLevel(
-            id=uuid4(), warehouse_id=uuid4(), product_id=uuid4(),
-            quantity=Decimal("3"), min_quantity=Decimal("10"),
-            max_quantity=None, updated_at=datetime.now(UTC),
+            id=uuid4(),
+            warehouse_id=uuid4(),
+            product_id=uuid4(),
+            quantity=Decimal("3"),
+            min_quantity=Decimal("10"),
+            max_quantity=None,
+            updated_at=datetime.now(UTC),
         )
         # 10*2 - 3 = 17
         self.assertEqual(_calcular_cantidad(sl), Decimal("17"))
 
     def test_calcular_cantidad_no_negativa(self) -> None:
         """Si current > target, retorna 0 (caller debe skipear)."""
-        from app.db.models.inventory import StockLevel
         from uuid import uuid4
+
+        from app.db.models.inventory import StockLevel
+
         sl = StockLevel(
-            id=uuid4(), warehouse_id=uuid4(), product_id=uuid4(),
-            quantity=Decimal("100"), min_quantity=Decimal("10"),
-            max_quantity=Decimal("20"), updated_at=datetime.now(UTC),
+            id=uuid4(),
+            warehouse_id=uuid4(),
+            product_id=uuid4(),
+            quantity=Decimal("100"),
+            min_quantity=Decimal("10"),
+            max_quantity=Decimal("20"),
+            updated_at=datetime.now(UTC),
         )
         self.assertEqual(_calcular_cantidad(sl), Decimal("0"))
 
     def test_calcular_prioridad_alta_si_menor_a_50_por_ciento(self) -> None:
-        from app.db.models.inventory import StockLevel
         from uuid import uuid4
+
+        from app.db.models.inventory import StockLevel
+
         sl = StockLevel(
-            id=uuid4(), warehouse_id=uuid4(), product_id=uuid4(),
-            quantity=Decimal("3"), min_quantity=Decimal("10"),
-            max_quantity=None, updated_at=datetime.now(UTC),
+            id=uuid4(),
+            warehouse_id=uuid4(),
+            product_id=uuid4(),
+            quantity=Decimal("3"),
+            min_quantity=Decimal("10"),
+            max_quantity=None,
+            updated_at=datetime.now(UTC),
         )
         # ratio 0.3 < 0.5
         self.assertEqual(_calcular_prioridad(sl), "alta")
 
     def test_calcular_prioridad_normal_si_sobre_50_por_ciento(self) -> None:
-        from app.db.models.inventory import StockLevel
         from uuid import uuid4
+
+        from app.db.models.inventory import StockLevel
+
         sl = StockLevel(
-            id=uuid4(), warehouse_id=uuid4(), product_id=uuid4(),
-            quantity=Decimal("6"), min_quantity=Decimal("10"),
-            max_quantity=None, updated_at=datetime.now(UTC),
+            id=uuid4(),
+            warehouse_id=uuid4(),
+            product_id=uuid4(),
+            quantity=Decimal("6"),
+            min_quantity=Decimal("10"),
+            max_quantity=None,
+            updated_at=datetime.now(UTC),
         )
         # ratio 0.6 >= 0.5
         self.assertEqual(_calcular_prioridad(sl), "normal")
 
     def test_calcular_prioridad_normal_si_min_es_cero(self) -> None:
         """Edge case: min_quantity=0 → no dividir por cero → 'normal'."""
-        from app.db.models.inventory import StockLevel
         from uuid import uuid4
+
+        from app.db.models.inventory import StockLevel
+
         sl = StockLevel(
-            id=uuid4(), warehouse_id=uuid4(), product_id=uuid4(),
-            quantity=Decimal("0"), min_quantity=Decimal("0"),
-            max_quantity=None, updated_at=datetime.now(UTC),
+            id=uuid4(),
+            warehouse_id=uuid4(),
+            product_id=uuid4(),
+            quantity=Decimal("0"),
+            min_quantity=Decimal("0"),
+            max_quantity=None,
+            updated_at=datetime.now(UTC),
         )
         self.assertEqual(_calcular_prioridad(sl), "normal")
 
@@ -305,6 +399,7 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
         async with self.session_factory() as session:
             from app.db.models.inventory import StockLevel
             from sqlalchemy import update
+
             await session.execute(
                 update(StockLevel)
                 .where(StockLevel.warehouse_id == self.aux1_id)
@@ -325,8 +420,8 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
     async def test_evaluar_con_productos_bajo_minimo_crea_1_solicitud(self) -> None:
         """AUX-1 tiene 3 SKUs bajo minimo (p1, p2, p4). El Evaluator
         crea UNA sola solicitud con 3 lineas, dirigida a PRINCIPAL."""
-        from sqlalchemy import select, func
-        from app.db.models.solicitudes import SolicitudRecarga, DetalleSolicitudRecarga
+        from app.db.models.solicitudes import DetalleSolicitudRecarga, SolicitudRecarga
+        from sqlalchemy import func, select
 
         async with self.session_factory() as session:
             evaluator = ReplenishmentEvaluator(session)
@@ -356,16 +451,21 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
             self.assertIn("ReplenishmentEvaluator", sol.notas or "")
 
             # Detalles: 3 lineas (p_inactivo NO aparece)
-            detalles = list((await session.execute(
-                select(func.count()).select_from(DetalleSolicitudRecarga)
-                .where(DetalleSolicitudRecarga.id_solicitud == sol.id)
-            )).scalars())
+            detalles = list(
+                (
+                    await session.execute(
+                        select(func.count())
+                        .select_from(DetalleSolicitudRecarga)
+                        .where(DetalleSolicitudRecarga.id_solicitud == sol.id)
+                    )
+                ).scalars()
+            )
             self.assertEqual(detalles[0], 3)
 
     async def test_evaluar_usa_max_quantity_si_esta_definido(self) -> None:
         """p2 tiene max=50, actual=5 → sugerido = 45."""
-        from sqlalchemy import select
         from app.db.models.solicitudes import DetalleSolicitudRecarga
+        from sqlalchemy import select
 
         async with self.session_factory() as session:
             evaluator = ReplenishmentEvaluator(session)
@@ -383,8 +483,8 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
 
     async def test_evaluar_usa_min_quantity_x2_si_max_es_null(self) -> None:
         """p1 y p4 tienen max=NULL → sugerido = min*2 - actual."""
-        from sqlalchemy import select
         from app.db.models.solicitudes import DetalleSolicitudRecarga
+        from sqlalchemy import select
 
         async with self.session_factory() as session:
             evaluator = ReplenishmentEvaluator(session)
@@ -409,15 +509,17 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
 
         # Crear manualmente una solicitud PENDING desde AUX-1
         async with self.session_factory() as session:
-            session.add(SolicitudRecarga(
-                id=uuid4(),
-                codigo="SOL-EXISTENTE-0001",
-                id_bodega_origen=self.aux1_id,
-                id_bodega_destino=self.principal_id,
-                estado=SolicitudEstado.PENDING,
-                prioridad="normal",
-                notas="Solicitud preexistente",
-            ))
+            session.add(
+                SolicitudRecarga(
+                    id=uuid4(),
+                    codigo="SOL-EXISTENTE-0001",
+                    id_bodega_origen=self.aux1_id,
+                    id_bodega_destino=self.principal_id,
+                    estado=SolicitudEstado.PENDING,
+                    prioridad="normal",
+                    notas="Solicitud preexistente",
+                )
+            )
             await session.commit()
 
         async with self.session_factory() as session:
@@ -434,38 +536,39 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
 
         # Solo debe existir 1 solicitud (la preexistente)
         async with self.session_factory() as session:
-            count = (await session.execute(
-                select(SolicitudRecarga)
-            )).scalars().all()
+            count = (await session.execute(select(SolicitudRecarga))).scalars().all()
             self.assertEqual(len(count), 1)
 
     async def test_evaluar_solo_procesa_bodegas_auxiliares(self) -> None:
         """El Evaluator NO crea solicitudes desde Principal ni desde Boxes."""
-        from sqlalchemy import select
-        from app.db.models.solicitudes import SolicitudRecarga
         from app.db.models.inventory import StockLevel
-        from app.db.models.warehouses import Warehouse
+        from app.db.models.solicitudes import SolicitudRecarga
+        from sqlalchemy import select
 
         # Crear stock bajo minimo en PRINCIPAL y en BOX-1
         async with self.session_factory() as session:
             # Stock bajo minimo en Principal
-            session.add(StockLevel(
-                warehouse_id=self.principal_id,
-                product_id=self.p1_id,
-                quantity=Decimal("0"),
-                min_quantity=Decimal("10"),
-                max_quantity=None,
-                updated_at=datetime.now(UTC),
-            ))
+            session.add(
+                StockLevel(
+                    warehouse_id=self.principal_id,
+                    product_id=self.p1_id,
+                    quantity=Decimal("0"),
+                    min_quantity=Decimal("10"),
+                    max_quantity=None,
+                    updated_at=datetime.now(UTC),
+                )
+            )
             # Stock bajo minimo en BOX-1 (hijo de aux1)
-            session.add(StockLevel(
-                warehouse_id=self.box1_id,
-                product_id=self.p1_id,
-                quantity=Decimal("0"),
-                min_quantity=Decimal("10"),
-                max_quantity=None,
-                updated_at=datetime.now(UTC),
-            ))
+            session.add(
+                StockLevel(
+                    warehouse_id=self.box1_id,
+                    product_id=self.p1_id,
+                    quantity=Decimal("0"),
+                    min_quantity=Decimal("10"),
+                    max_quantity=None,
+                    updated_at=datetime.now(UTC),
+                )
+            )
             await session.commit()
 
         async with self.session_factory() as session:
@@ -476,16 +579,14 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
         # Solo debe haber 1 solicitud (la de AUX-1)
         self.assertEqual(report.solicitudes_creadas, 1)
         async with self.session_factory() as session:
-            solicitudes = (await session.execute(
-                select(SolicitudRecarga)
-            )).scalars().all()
+            solicitudes = (await session.execute(select(SolicitudRecarga))).scalars().all()
             self.assertEqual(len(solicitudes), 1)
             self.assertEqual(solicitudes[0].id_bodega_origen, self.aux1_id)
 
     async def test_evaluar_solo_procesa_productos_activos(self) -> None:
         """Productos con is_active=False son skipeados aunque esten bajo minimo."""
-        from sqlalchemy import select
         from app.db.models.solicitudes import DetalleSolicitudRecarga
+        from sqlalchemy import select
 
         async with self.session_factory() as session:
             evaluator = ReplenishmentEvaluator(session)
@@ -517,8 +618,8 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
 
     async def test_evaluar_dry_run_no_crea_solicitud(self) -> None:
         """dry_run=True evalua y reporta pero NO persiste solicitudes."""
-        from sqlalchemy import select, func
         from app.db.models.solicitudes import SolicitudRecarga
+        from sqlalchemy import func, select
 
         async with self.session_factory() as session:
             evaluator = ReplenishmentEvaluator(session)
@@ -533,27 +634,29 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
 
         # Pero la BD no debe tener solicitudes nuevas
         async with self.session_factory() as session:
-            count = (await session.execute(
-                select(func.count()).select_from(SolicitudRecarga)
-            )).scalar()
+            count = (
+                await session.execute(select(func.count()).select_from(SolicitudRecarga))
+            ).scalar()
             self.assertEqual(count, 0)
 
     async def test_evaluar_un_warehouse_especifico(self) -> None:
         """evaluate_one(warehouse_id) evalua solo esa bodega."""
-        from sqlalchemy import select
-        from app.db.models.solicitudes import SolicitudRecarga
         from app.db.models.inventory import StockLevel
+        from app.db.models.solicitudes import SolicitudRecarga
+        from sqlalchemy import select
 
         # Crear stock bajo minimo tambien en AUX-2
         async with self.session_factory() as session:
-            session.add(StockLevel(
-                warehouse_id=self.aux2_id,
-                product_id=self.p2_id,
-                quantity=Decimal("1"),
-                min_quantity=Decimal("10"),
-                max_quantity=None,
-                updated_at=datetime.now(UTC),
-            ))
+            session.add(
+                StockLevel(
+                    warehouse_id=self.aux2_id,
+                    product_id=self.p2_id,
+                    quantity=Decimal("1"),
+                    min_quantity=Decimal("10"),
+                    max_quantity=None,
+                    updated_at=datetime.now(UTC),
+                )
+            )
             await session.commit()
 
         # evaluate_one sobre AUX-1
@@ -567,9 +670,7 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
 
         # Solo debe existir 1 solicitud (la de AUX-1, NO la de AUX-2)
         async with self.session_factory() as session:
-            solicitudes = (await session.execute(
-                select(SolicitudRecarga)
-            )).scalars().all()
+            solicitudes = (await session.execute(select(SolicitudRecarga))).scalars().all()
             self.assertEqual(len(solicitudes), 1)
             self.assertEqual(solicitudes[0].id_bodega_origen, self.aux1_id)
 
@@ -587,8 +688,8 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
 
     async def test_evaluar_uno_warehouse_principal_retorna_error(self) -> None:
         """evaluate_one sobre Principal NO crea solicitud; lo reporta como error."""
-        from sqlalchemy import select, func
         from app.db.models.solicitudes import SolicitudRecarga
+        from sqlalchemy import func, select
 
         async with self.session_factory() as session:
             evaluator = ReplenishmentEvaluator(session)
@@ -603,15 +704,15 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
         self.assertEqual(report.solicitudes_creadas, 0)
 
         async with self.session_factory() as session:
-            count = (await session.execute(
-                select(func.count()).select_from(SolicitudRecarga)
-            )).scalar()
+            count = (
+                await session.execute(select(func.count()).select_from(SolicitudRecarga))
+            ).scalar()
             self.assertEqual(count, 0)
 
     async def test_evaluar_uno_warehouse_box_retorna_error(self) -> None:
         """evaluate_one sobre Box (mecanico_box) NO crea solicitud."""
-        from sqlalchemy import select, func
         from app.db.models.solicitudes import SolicitudRecarga
+        from sqlalchemy import func, select
 
         async with self.session_factory() as session:
             evaluator = ReplenishmentEvaluator(session)
@@ -623,15 +724,15 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
         self.assertEqual(len(report.errores), 1)
         self.assertEqual(report.solicitudes_creadas, 0)
         async with self.session_factory() as session:
-            count = (await session.execute(
-                select(func.count()).select_from(SolicitudRecarga)
-            )).scalar()
+            count = (
+                await session.execute(select(func.count()).select_from(SolicitudRecarga))
+            ).scalar()
             self.assertEqual(count, 0)
 
     async def test_evaluar_dry_run_para_bodega_especifica(self) -> None:
         """evaluate_one con dry_run=True evalua pero no persiste."""
-        from sqlalchemy import select, func
         from app.db.models.solicitudes import SolicitudRecarga
+        from sqlalchemy import func, select
 
         async with self.session_factory() as session:
             evaluator = ReplenishmentEvaluator(session)
@@ -641,9 +742,9 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
         self.assertTrue(report.dry_run)
         self.assertEqual(report.solicitudes_creadas, 1)
         async with self.session_factory() as session:
-            count = (await session.execute(
-                select(func.count()).select_from(SolicitudRecarga)
-            )).scalar()
+            count = (
+                await session.execute(select(func.count()).select_from(SolicitudRecarga))
+            ).scalar()
             self.assertEqual(count, 0)
 
 

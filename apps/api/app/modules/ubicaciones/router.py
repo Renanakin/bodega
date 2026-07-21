@@ -8,6 +8,7 @@ Endpoints:
 - ``PATCH  /api/v1/ubicaciones/{id}``                — activar/desactivar
 - ``DELETE /api/v1/ubicaciones/{id}``                — soft delete
 """
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -113,7 +114,11 @@ def update_ubicacion(
     return ubicacion
 
 
-@router.delete("/ubicaciones/{ubicacion_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/ubicaciones/{ubicacion_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,  # explicito: FastAPI >= 0.116 confunde -> None con NoneType
+)
 def delete_ubicacion(
     ubicacion_id: UUID,
     user=Depends(require_roles("admin", "supervisor")),

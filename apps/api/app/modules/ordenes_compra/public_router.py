@@ -12,6 +12,7 @@ Reglas:
 - R5: el path publico usa prefijo `/public` para distinguir visualmente
   en OpenAPI y logs que NO requiere auth.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal

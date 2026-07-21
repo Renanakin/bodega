@@ -10,6 +10,7 @@ Uso:
     settings = get_settings()
     db_url = settings.database_url
 """
+
 from __future__ import annotations
 
 import os
@@ -22,10 +23,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Paths base del proyecto
 # config.py vive en apps/api/app/core/. Por lo tanto:
-# parents[0] = apps/api/app/core
-# parents[1] = apps/api/app
-# parents[2] = apps/api         (API_ROOT)
-# parents[3] = apps
 # parents[4] = <repo>           (REPO_ROOT)
 API_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -137,7 +134,9 @@ class Settings(BaseSettings):
     smtp_username: str | None = Field(default=None)
     smtp_password: SecretStr | None = Field(default=None)
     smtp_from: EmailStr = Field(default="noreply@bodega.example")
-    smtp_use_tls: bool = Field(default=False, description="STARTTLS. Activar en staging/production.")
+    smtp_use_tls: bool = Field(
+        default=False, description="STARTTLS. Activar en staging/production."
+    )
     smtp_timeout_seconds: int = Field(
         default=30,
         ge=1,
@@ -315,9 +314,7 @@ class Settings(BaseSettings):
         """
         if value is None or value == "":
             return None
-        if not value.startswith(
-            ("postgresql+asyncpg://", "sqlite+aiosqlite://", "sqlite://")
-        ):
+        if not value.startswith(("postgresql+asyncpg://", "sqlite+aiosqlite://", "sqlite://")):
             raise ValueError(
                 "database_url debe usar un driver soportado. "
                 "Ej: postgresql+asyncpg://user:pass@host:5432/db"

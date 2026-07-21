@@ -28,6 +28,7 @@ Uso:
   cd apps/api
   python -m tests.manual.test_e2e_fase7
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -43,7 +44,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 # Configuracion por env. Default = dev local con Mailpit.
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://bodegaje:bodegaje@localhost:5432/bodegaje")
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql+asyncpg://bodegaje:bodegaje@localhost:5432/bodegaje"
+)
 os.environ.setdefault("ENVIRONMENT", "development")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("JWT_SECRET", "dev-secret-not-for-production-32chars-XXXXXX")
@@ -54,16 +57,9 @@ os.environ.setdefault("SMTP_TLS", "false")
 os.environ.setdefault("PUBLIC_BASE_URL", "http://localhost:5173")
 os.environ.setdefault("APPROVAL_TOKEN_MAX_AGE_DAYS", "7")
 
-import httpx  # noqa: E402
-from sqlalchemy import event  # noqa: E402
-from sqlalchemy.ext.asyncio import (  # noqa: E402
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.pool import StaticPool  # noqa: E402
+import contextlib
 
+import httpx  # noqa: E402
 from app.core.config import get_settings, reset_settings_cache  # noqa: E402
 from app.core.security import issue_approval_token  # noqa: E402
 from app.db import models  # noqa: E402, F401
@@ -77,7 +73,14 @@ from app.db.models.products import Product  # noqa: E402
 from app.db.models.supervisores import Supervisor  # noqa: E402
 from app.db.models.warehouses import Warehouse  # noqa: E402
 from app.modules.notifications.service import NotificationsService  # noqa: E402
-
+from sqlalchemy import event  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import StaticPool  # noqa: E402
 
 reset_settings_cache()
 
@@ -119,11 +122,8 @@ def _mailpit_messages(host: str = "localhost", port: int = 8025) -> list[dict]:
 
 
 def _mailpit_clear(host: str = "localhost", port: int = 8025) -> None:
-    with httpx.Client(timeout=3.0) as c:
-        try:
-            c.delete(f"http://{host}:{port}/api/v1/messages")
-        except httpx.HTTPError:
-            pass
+    with httpx.Client(timeout=3.0) as c, contextlib.suppress(httpx.HTTPError):
+        c.delete(f"http://{host}:{port}/api/v1/messages")
 
 
 async def run_e2e() -> None:  # noqa: PLR0915
@@ -146,9 +146,7 @@ async def run_e2e() -> None:  # noqa: PLR0915
     engine = _make_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    session_factory = async_sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     print("[OK] Schema creado")
 
     # 2. Crear datos seed: bodega + supervisor + 2 productos.
@@ -159,17 +157,25 @@ async def run_e2e() -> None:  # noqa: PLR0915
     p2_id = uuid.uuid4()
     sup_email = f"supervisor-{uuid.uuid4().hex[:6]}@bodega.example"
     async with session_factory() as session:
-        session.add_all([
-            Warehouse(
-                id=wh_id, code="PRINCIPAL-F7", name="Bodega Principal",
-                warehouse_type="principal", is_active=True,
-            ),
-            Supervisor(
-                id=sup_id, nombre="E2E Supervisor", email=sup_email, activo=True,
-            ),
-            Product(id=p1_id, sku="F7-A", name="Filtro F7", unit="unidad", is_active=True),
-            Product(id=p2_id, sku="F7-B", name="Bujia F7", unit="unidad", is_active=True),
-        ])
+        session.add_all(
+            [
+                Warehouse(
+                    id=wh_id,
+                    code="PRINCIPAL-F7",
+                    name="Bodega Principal",
+                    warehouse_type="principal",
+                    is_active=True,
+                ),
+                Supervisor(
+                    id=sup_id,
+                    nombre="E2E Supervisor",
+                    email=sup_email,
+                    activo=True,
+                ),
+                Product(id=p1_id, sku="F7-A", name="Filtro F7", unit="unidad", is_active=True),
+                Product(id=p2_id, sku="F7-B", name="Bujia F7", unit="unidad", is_active=True),
+            ]
+        )
         await session.commit()
     print(f"  wh={wh_id}")
     print(f"  sup={sup_id} ({sup_email})")
@@ -191,16 +197,22 @@ async def run_e2e() -> None:  # noqa: PLR0915
         )
         session.add(oc)
         await session.flush()
-        session.add_all([
-            DetalleOrdenCompra(
-                id_orden_compra=oc.id, id_producto=p1_id,
-                cantidad_pedida=Decimal("10"), costo_unitario_pactado=Decimal("1500"),
-            ),
-            DetalleOrdenCompra(
-                id_orden_compra=oc.id, id_producto=p2_id,
-                cantidad_pedida=Decimal("5"), costo_unitario_pactado=Decimal("3000"),
-            ),
-        ])
+        session.add_all(
+            [
+                DetalleOrdenCompra(
+                    id_orden_compra=oc.id,
+                    id_producto=p1_id,
+                    cantidad_pedida=Decimal("10"),
+                    costo_unitario_pactado=Decimal("1500"),
+                ),
+                DetalleOrdenCompra(
+                    id_orden_compra=oc.id,
+                    id_producto=p2_id,
+                    cantidad_pedida=Decimal("5"),
+                    costo_unitario_pactado=Decimal("3000"),
+                ),
+            ]
+        )
         await session.commit()
     print(f"  OC creada: {oc_id} (codigo=OC-F7-E2E)")
 
@@ -225,9 +237,10 @@ async def run_e2e() -> None:  # noqa: PLR0915
         await session.commit()
         service = NotificationsService(session)
         # Mock el LPUSH a Redis (no hay Arq corriendo en este script).
-        from app.worker import enqueue_send_email_task
         from unittest.mock import AsyncMock
+
         import app.worker as wm
+
         wm.enqueue_send_email_task = AsyncMock(return_value=None)
         outbox = await service.enqueue(
             to_email=sup_email,
@@ -245,13 +258,17 @@ async def run_e2e() -> None:  # noqa: PLR0915
                     "total_estimado": "30.000",
                     "lineas": [
                         {
-                            "sku": "F7-A", "nombre": "Filtro F7",
-                            "cantidad": "10", "costo_unitario": "1.500",
+                            "sku": "F7-A",
+                            "nombre": "Filtro F7",
+                            "cantidad": "10",
+                            "costo_unitario": "1.500",
                             "subtotal": "15.000",
                         },
                         {
-                            "sku": "F7-B", "nombre": "Bujia F7",
-                            "cantidad": "5", "costo_unitario": "3.000",
+                            "sku": "F7-B",
+                            "nombre": "Bujia F7",
+                            "cantidad": "5",
+                            "costo_unitario": "3.000",
                             "subtotal": "15.000",
                         },
                     ],
@@ -291,7 +308,7 @@ async def run_e2e() -> None:  # noqa: PLR0915
     if not target:
         print(f"[!] Mailpit no recibio el email. Messages: {messages}")
         sys.exit(1)
-    print(f"  [OK] Mailpit recibio 1 email con subject correcto")
+    print("  [OK] Mailpit recibio 1 email con subject correcto")
     print(f"      To: {target.get('To')}")
     print(f"      From: {target.get('From')}")
     print(f"      Created: {target.get('Created')}")
@@ -306,11 +323,11 @@ async def run_e2e() -> None:  # noqa: PLR0915
     body = detail.json()
     body_html = body.get("Body") or body.get("HTML") or ""
     if token not in body_html:
-        print(f"[!] Token no aparece en el body del email.")
+        print("[!] Token no aparece en el body del email.")
         print(f"    Token: {token}")
         print(f"    Body preview: {body_html[:200]}...")
         sys.exit(1)
-    print(f"  [OK] Token encontrado en el body_html")
+    print("  [OK] Token encontrado en el body_html")
     print(f"      token = {token[:40]}...")
 
     # 8. Aprobar via token (simula la vista publica, sin HTTP).
@@ -327,8 +344,8 @@ async def run_e2e() -> None:  # noqa: PLR0915
 
     # 9. Verificar outbox final.
     print("\n=== PASO 7: Verificar outbox final ===")
-    from sqlalchemy import select
     from app.db.models.ordenes_compra import EmailOutbox
+
     async with session_factory() as session:
         ob = await session.get(EmailOutbox, outbox_id)
         print(f"  status    = {ob.status}")

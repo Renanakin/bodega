@@ -18,6 +18,7 @@ Casos cubiertos:
 Los tests usan el mismo patron que ``test_solicitudes.py``: AsyncEngine
 SQLite + StaticPool + TestClient + BD legacy para usuarios.
 """
+
 from __future__ import annotations
 
 import os
@@ -29,12 +30,16 @@ from uuid import uuid4
 # Configurar el AsyncEngine antes de importar la app (mismo patron que test_solicitudes.py)
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ENVIRONMENT", "development")
-os.environ.setdefault(
-    "JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX"
-)
+os.environ.setdefault("JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
 import pytest  # noqa: E402
+from app.core.config import reset_settings_cache  # noqa: E402
+from app.core.security import hash_password  # noqa: E402
+from app.db import models  # noqa: E402, F401
+from app.db.base import Base  # noqa: E402
+from app.main import create_app  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import event  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
@@ -43,14 +48,6 @@ from sqlalchemy.ext.asyncio import (  # noqa: E402
     create_async_engine,
 )
 from sqlalchemy.pool import StaticPool  # noqa: E402
-
-from app.core.config import reset_settings_cache  # noqa: E402
-from app.core.security import hash_password  # noqa: E402
-from app.db import models  # noqa: E402, F401
-from app.db.base import Base  # noqa: E402
-from app.main import create_app  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
 
 reset_settings_cache()
 
@@ -124,10 +121,11 @@ async def _setup_escaneo_data(session: AsyncSession) -> dict[str, Any]:
             (uid, username, full_name, role, hash_password("demo123"), now),
         )
 
-    from app.db.models.warehouses import Warehouse
-    from app.db.models.products import Product
+    from datetime import UTC, datetime
+
     from app.db.models.inventory import StockLevel
-    from datetime import datetime, UTC
+    from app.db.models.products import Product
+    from app.db.models.warehouses import Warehouse
 
     warehouses: dict[str, Any] = {
         "principal_id": uuid4(),
@@ -221,6 +219,7 @@ class RecepcionEscaneoTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self) -> None:
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
 
         self.engine = _create_test_engine()
@@ -231,6 +230,7 @@ class RecepcionEscaneoTestCase(unittest.IsolatedAsyncioTestCase):
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
         import app.db.session as session_module
+
         session_module._engine = self.engine
         session_module._session_factory = self.session_factory
 
@@ -263,6 +263,7 @@ class RecepcionEscaneoTestCase(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
         self.legacy_db.close()
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
 
     def _id(self, key: str) -> str:
@@ -303,7 +304,8 @@ class RecepcionEscaneoTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sol.status_code, 201, sol.text)
         sol_id = sol.json()["id"]
         self.client.post(
-            f"/api/v1/solicitudes/{sol_id}/approve", json={},
+            f"/api/v1/solicitudes/{sol_id}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         dispatch_resp = self.client.post(
@@ -312,11 +314,13 @@ class RecepcionEscaneoTestCase(unittest.IsolatedAsyncioTestCase):
             headers=self.headers_origen,
         )
         self.assertEqual(
-            dispatch_resp.status_code, 200,
+            dispatch_resp.status_code,
+            200,
             f"dispatch fallo: {dispatch_resp.text}",
         )
         self.assertEqual(
-            dispatch_resp.json()["estado"], "in_transit",
+            dispatch_resp.json()["estado"],
+            "in_transit",
             f"esperado in_transit, obtenido {dispatch_resp.json()['estado']}",
         )
         return sol_id
@@ -390,8 +394,9 @@ class RecepcionEscaneoTestCase(unittest.IsolatedAsyncioTestCase):
         # Verificar que NO se desconto ningun stock en la bodega origen
         # (rollback transaccional). Producto p2 sigue intacto.
         async with self.session_factory() as s:
-            from sqlalchemy import select
             from app.db.models.inventory import StockLevel
+            from sqlalchemy import select
+
             stmt = select(StockLevel).where(
                 StockLevel.warehouse_id == self._id("aux1_id"),
                 StockLevel.product_id == self._id("p1_id"),
@@ -421,22 +426,23 @@ class RecepcionEscaneoTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sol.status_code, 201, sol.text)
         sol_id = sol.json()["id"]
         self.client.post(
-            f"/api/v1/solicitudes/{sol_id}/approve", json={},
+            f"/api/v1/solicitudes/{sol_id}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         self.client.post(
             f"/api/v1/solicitudes/{sol_id}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p_sin_bc_id")), "cantidad_despachada": 5}
-            ]},
+            json={
+                "lineas": [{"producto_id": str(self._id("p_sin_bc_id")), "cantidad_despachada": 5}]
+            },
             headers=self.headers_origen,
         )
         # Sin barcode en el payload: la validacion se salta (None)
         resp = self.client.post(
             f"/api/v1/solicitudes/{sol_id}/receive",
-            json={"lineas": [
-                {"producto_id": str(self._id("p_sin_bc_id")), "cantidad_recibida": 5}
-            ]},
+            json={
+                "lineas": [{"producto_id": str(self._id("p_sin_bc_id")), "cantidad_recibida": 5}]
+            },
             headers=self.headers_destino,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -467,8 +473,9 @@ class RecepcionEscaneoTestCase(unittest.IsolatedAsyncioTestCase):
 
         # Verificar que Auxiliar tiene 10 unidades de cada producto
         async with self.session_factory() as s:
-            from sqlalchemy import select
             from app.db.models.inventory import StockLevel
+            from sqlalchemy import select
+
             for i in range(1, 6):
                 stmt = select(StockLevel).where(
                     StockLevel.warehouse_id == self._id("aux1_id"),
@@ -522,13 +529,15 @@ class RecepcionEscaneoTestCase(unittest.IsolatedAsyncioTestCase):
         sol_id = self._crear_despachar_5_lineas()
         resp = self.client.post(
             f"/api/v1/solicitudes/{sol_id}/receive",
-            json={"lineas": [
-                {
-                    "producto_id": str(self._id("p1_id")),
-                    "cantidad_recibida": 5,  # mitad
-                    "barcode": self.products["p1_barcode"],
-                }
-            ]},
+            json={
+                "lineas": [
+                    {
+                        "producto_id": str(self._id("p1_id")),
+                        "cantidad_recibida": 5,  # mitad
+                        "barcode": self.products["p1_barcode"],
+                    }
+                ]
+            },
             headers=self.headers_destino,
         )
         self.assertEqual(resp.status_code, 200)

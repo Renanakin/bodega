@@ -4,6 +4,7 @@ Capa: API (entrada/salida HTTP). Validacion estructural via Pydantic.
 Reglas de negocio (unicidad de nombre/RUT, soft delete) viven en
 ``ProveedorService``.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -11,7 +12,6 @@ from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
-
 
 # Limites reutilizables: nombre (display) y RUT chileno (8 digitos + DV, opcional).
 NombreStr = Annotated[str, StringConstraints(min_length=1, max_length=200, strip_whitespace=True)]

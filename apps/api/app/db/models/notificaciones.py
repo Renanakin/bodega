@@ -18,6 +18,7 @@ El campo ``payload`` (JSON serializado) lleva contexto extra: id de la
 solicitud, id de la OC, etc. La UI lo usa para armar el link directo al
 detalle (e.g. ``/solicitudes/{id}``).
 """
+
 import enum
 import uuid
 
@@ -64,6 +65,4 @@ class Notificacion(Base):
     payload: Mapped[str] = mapped_column(Text, nullable=True)
     leida: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at = created_at_column()
-    read_at: Mapped[object] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    read_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)

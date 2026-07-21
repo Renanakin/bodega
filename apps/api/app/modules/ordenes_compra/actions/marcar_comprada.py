@@ -4,12 +4,11 @@ Accion: marcar OC como comprada (proveedor entrego mercaderia).
 Solo valido si la OC esta en APROBADO. Transiciona a COMPRADO
 (estado terminal).
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import InvalidOrdenCompraStatusError
 from app.core.logging import get_logger
@@ -17,9 +16,8 @@ from app.db.models.notificaciones import NotificationType
 from app.db.models.ordenes_compra import OrdenCompraEstado
 from app.db.models.users import UserRole
 from app.modules.notificaciones.service import NotificacionesService
-
 from app.modules.ordenes_compra.actions._common import OrdenCompraView, require_oc, to_view
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 
@@ -53,10 +51,7 @@ async def marcar_comprada(
         tipo=NotificationType.ORDEN_COMPRA_RECIBIDA.value,
         titulo=f"OC {oc.codigo} marcada como comprada",
         mensaje=f"Proveedor: {oc.proveedor_nombre}",
-        payload=(
-            f'{{"oc_id": "{oc.id}", '
-            f'"codigo": "{oc.codigo}"}}'
-        ),
+        payload=(f'{{"oc_id": "{oc.id}", "codigo": "{oc.codigo}"}}'),
     )
 
     return await to_view(session, oc)

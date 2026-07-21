@@ -5,6 +5,7 @@ Usa SQLite in-memory async (aiosqlite) para que los tests sean rápidos
 y no requieran Docker. Los tests específicos de Postgres usan
 pytest-postgresql o se skippean si no hay Docker.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -12,11 +13,10 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
-
 from app.core.config import reset_settings_cache
-from app.db.base import Base
 from app.db import models  # noqa: F401  -- importa modelos para que Base.metadata los conozca
+from app.db.base import Base
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 
 @pytest.fixture(autouse=True)
@@ -59,6 +59,7 @@ def postgres_required() -> Any:
             ...
     """
     from app.core.config import get_settings
+
     settings = get_settings()
     if not settings.database_url.startswith("postgresql"):
         pytest.skip("Test requiere PostgreSQL real (DATABASE_URL=postgresql+asyncpg://...)")

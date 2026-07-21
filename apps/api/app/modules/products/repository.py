@@ -16,20 +16,20 @@ def _to_product(row) -> ProductRecord:
         is_active=bool(row["is_active"]),
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
-        codigo_barras=row["codigo_barras"] if "codigo_barras" in row.keys() else None,
+        codigo_barras=row["codigo_barras"] if "codigo_barras" in row.keys() else None,  # noqa: SIM118
         precio_costo=(
             Decimal(str(row["precio_costo"]))
-            if "precio_costo" in row.keys() and row["precio_costo"] is not None
+            if "precio_costo" in row.keys() and row["precio_costo"] is not None  # noqa: SIM118
             else Decimal("0")
         ),
         precio_venta=(
             Decimal(str(row["precio_venta"]))
-            if "precio_venta" in row.keys() and row["precio_venta"] is not None
+            if "precio_venta" in row.keys() and row["precio_venta"] is not None  # noqa: SIM118
             else Decimal("0")
         ),
         id_categoria=(
             UUID(row["id_categoria"])
-            if "id_categoria" in row.keys() and row["id_categoria"]
+            if "id_categoria" in row.keys() and row["id_categoria"]  # noqa: SIM118
             else None
         ),
     )
@@ -56,9 +56,7 @@ class ProductRepository:
         return _to_product(row) if row is not None else None
 
     def get_by_codigo_barras(self, codigo_barras: str) -> ProductRecord | None:
-        row = self._db.query_one(
-            "SELECT * FROM products WHERE codigo_barras = ?", (codigo_barras,)
-        )
+        row = self._db.query_one("SELECT * FROM products WHERE codigo_barras = ?", (codigo_barras,))
         return _to_product(row) if row is not None else None
 
     def add(self, product: ProductRecord) -> ProductRecord:
@@ -134,6 +132,6 @@ class ProductRepository:
             return
         params.append(str(product_id))
         self._db.execute(
-            f"UPDATE products SET {', '.join(sets)} WHERE id = ?",
+            f"UPDATE products SET {', '.join(sets)} WHERE id = ?",  # noqa: S608
             tuple(params),
         )

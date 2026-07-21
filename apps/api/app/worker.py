@@ -34,6 +34,7 @@ Convencion de Arq 0.26+:
     clase a ``Worker(**settings.__dict__)`` para instanciar el worker.
     Por eso declaramos ``WorkerSettings`` como clase, no como instancia.
 """
+
 from __future__ import annotations
 
 from arq.connections import RedisSettings, create_pool
@@ -47,7 +48,6 @@ from app.modules.observability.metrics import (
     update_solicitudes_gauge_from_db,
 )
 from app.modules.solicitudes.replenishment import ReplenishmentEvaluator
-
 
 # Configurar logging estructurado (R8). En el entry point de Arq el
 # logging debe inicializarse antes de instanciar el worker para que los
@@ -82,13 +82,13 @@ def _build_cron_minutes(total_minutes: int) -> set[int]:
             applied_minutes=chosen,
             reason="Arq no soporta intervalos arbitrarios; se redondeo al multiplo inferior valido",
         )
-    return {m for m in range(0, 60, chosen)}
+    return set(range(0, 60, chosen))
 
 
 # ============================================================== TAREAS (functions)
 
 
-async def replenishment_task(ctx) -> dict:
+async def replenishment_task(_ctx) -> dict:
     """Tarea cron: detecta stock bajo minimo y crea solicitudes automaticas.
 
     Args:
@@ -129,7 +129,7 @@ async def replenishment_task(ctx) -> dict:
     }
 
 
-async def send_email_task(ctx, outbox_id: str) -> dict:
+async def send_email_task(_ctx, outbox_id: str) -> dict:
     """Tarea Arq: consume UN email del outbox y lo envia via SMTP (Fase 7).
 
     Llamada por:
@@ -167,7 +167,7 @@ async def send_email_task(ctx, outbox_id: str) -> dict:
     return result
 
 
-async def update_metrics_task(ctx) -> dict:
+async def update_metrics_task(_ctx) -> dict:
     """Tarea Arq: actualiza los Gauges de Prometheus desde la BD (Fase 9).
 
     Se ejecuta cada minuto (cron). Hace SELECT COUNT(*) en
@@ -191,10 +191,6 @@ async def update_metrics_task(ctx) -> dict:
 
     # Import lazy: evita ciclo si ``app.modules.observability`` se importa
     # en el path de inicializacion del worker.
-    from app.modules.observability.metrics import (  # noqa: PLC0415
-        update_email_outbox_gauge_from_db,
-        update_solicitudes_gauge_from_db,
-    )
 
     await update_solicitudes_gauge_from_db(session_factory)
     await update_email_outbox_gauge_from_db(session_factory)
@@ -253,12 +249,12 @@ async def enqueue_send_email_task(outbox_id: str) -> None:
 # ============================================================== HOOKS DEL WORKER
 
 
-async def startup(ctx) -> None:
+async def startup(_ctx) -> None:
     """Hook invocado por Arq al arrancar el worker."""
     log.info("worker.startup", tasks=["replenishment_task", SEND_EMAIL_TASK])
 
 
-async def shutdown(ctx) -> None:
+async def shutdown(_ctx) -> None:
     """Hook invocado por Arq al detener el worker (SIGTERM/SIGINT)."""
     log.info("worker.shutdown")
 

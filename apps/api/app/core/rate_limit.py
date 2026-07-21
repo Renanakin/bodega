@@ -11,6 +11,7 @@ Decisiones:
 Regla de oro aplicada:
 - R4: solo infrastructura, sin logica de negocio.
 """
+
 from __future__ import annotations
 
 import time

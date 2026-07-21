@@ -20,19 +20,17 @@ Reglas:
     * ``retry_dead()`` — admin: reintenta emails en estado 'dead'.
     * ``metrics()`` — conteo por status para Prometheus.
 """
+
 from __future__ import annotations
 
 import json
 import re
 import smtplib
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
-
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -40,6 +38,8 @@ from app.db.models.ordenes_compra import EmailOutbox
 from app.modules.notifications.smtp import (
     SmtpError,
     SmtpPermanentError,
+)
+from app.modules.notifications.smtp import (
     send_email as smtp_send_email,
 )
 from app.modules.notifications.templates import render_with_inline_css
@@ -49,7 +49,8 @@ from app.modules.observability.metrics import (
     EMAIL_SENT_TOTAL,
     EMAIL_SMTP_SEND_DURATION,
 )
-
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 
@@ -88,7 +89,7 @@ class NotificationsService:
         subject: str,
         template_name: str,
         context: dict[str, Any],
-        priority: int = 5,
+        _priority: int = 5,
     ) -> EmailOutbox:
         """Encola un email renderizando la plantilla Jinja2 (Fase 7 API).
 
@@ -428,9 +429,7 @@ class NotificationsService:
 
     async def metrics(self) -> dict[str, int]:
         """Conteos por status. Util para Prometheus (`/metrics` custom)."""
-        stmt = select(EmailOutbox.status, func.count(EmailOutbox.id)).group_by(
-            EmailOutbox.status
-        )
+        stmt = select(EmailOutbox.status, func.count(EmailOutbox.id)).group_by(EmailOutbox.status)
         result = await self._session.execute(stmt)
         counts: dict[str, int] = {
             self.STATUS_PENDING: 0,
@@ -472,9 +471,7 @@ class NotificationsService:
             if settings.smtp_username:
                 smtp.login(
                     settings.smtp_username,
-                    settings.smtp_password.get_secret_value()
-                    if settings.smtp_password
-                    else "",
+                    settings.smtp_password.get_secret_value() if settings.smtp_password else "",
                 )
             smtp.sendmail(settings.smtp_from, [ob.to_email], msg.as_string())
         finally:

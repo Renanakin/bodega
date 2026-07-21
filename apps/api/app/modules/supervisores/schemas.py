@@ -3,6 +3,7 @@
 Separados del router para que services/tests/frontend los puedan importar
 sin arrastrar dependencias de FastAPI.
 """
+
 from __future__ import annotations
 
 import uuid

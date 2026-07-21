@@ -3,12 +3,11 @@ Accion: aprobar solicitud (PENDING -> APPROVED).
 
 No descuenta stock. Solo valida estado, actualiza, notifica.
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import SolicitudInvalidStateError
 from app.core.logging import get_logger
@@ -16,14 +15,13 @@ from app.db.models.notificaciones import NotificationType
 from app.db.models.solicitudes import SolicitudEstado
 from app.db.models.users import UserRole
 from app.db.models.warehouses import Warehouse
-
 from app.modules.solicitudes.actions._common import (
     SolicitudView,
     lock_or_404,
     to_view,
     utcnow,
 )
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.solicitudes.schemas import SolicitudAprobacion
@@ -42,9 +40,7 @@ async def approve_solicitud(
     """Aprueba una solicitud (PENDING -> APPROVED). No descuenta stock."""
     solicitud = await lock_or_404(repo, solicitud_id)
     if solicitud.estado != SolicitudEstado.PENDING:
-        raise SolicitudInvalidStateError(
-            current=solicitud.estado.value, expected="pending"
-        )
+        raise SolicitudInvalidStateError(current=solicitud.estado.value, expected="pending")
     now = utcnow()
     await repo.update_estado(solicitud_id, "approved", approved_at=now)
     await session.commit()
@@ -64,13 +60,9 @@ async def approve_solicitud(
         tipo=NotificationType.SOLICITUD_APPROVED.value,
         titulo=f"Solicitud {solicitud.codigo} aprobada",
         mensaje=(
-            f"Proceder con despacho desde "
-            f"{wh_origen_appr.code if wh_origen_appr else 'origen'}"
+            f"Proceder con despacho desde {wh_origen_appr.code if wh_origen_appr else 'origen'}"
         ),
-        payload=(
-            f'{{"solicitud_id": "{solicitud.id}", '
-            f'"codigo": "{solicitud.codigo}"}}'
-        ),
+        payload=(f'{{"solicitud_id": "{solicitud.id}", "codigo": "{solicitud.codigo}"}}'),
     )
 
     return await to_view(session, repo, solicitud_id)
@@ -81,10 +73,8 @@ async def approve(
     repo,
     notif,
     solicitud_id: uuid.UUID,
-    payload: "SolicitudAprobacion | None" = None,
+    _payload: SolicitudAprobacion | None = None,
     user_id: uuid.UUID | None = None,
 ) -> SolicitudView:
     """Sobrecarga: acepta ``SolicitudAprobacion`` opcional."""
-    return await approve_solicitud(
-        session, repo, notif, solicitud_id, user_id=user_id
-    )
+    return await approve_solicitud(session, repo, notif, solicitud_id, user_id=user_id)

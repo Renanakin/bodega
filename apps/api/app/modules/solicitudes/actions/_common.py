@@ -4,15 +4,13 @@ Helpers compartidos por las acciones y queries de solicitudes.
 Regla R3: este archivo solo tiene utilidades, no logica de negocio.
 Regla R5: nombres descriptivos del rol (validate_direction, lock_or_404, to_view).
 """
+
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     InvalidSolicitudDirectionError,
@@ -21,11 +19,13 @@ from app.core.errors import (
 from app.db.models.products import Product
 from app.db.models.solicitudes import SolicitudEstado, SolicitudRecarga
 from app.db.models.warehouses import Warehouse
-
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # ---------------------------------------------------------------------
 # Helpers de tiempo y mapeos
 # ---------------------------------------------------------------------
+
 
 def utcnow() -> datetime:
     """Retorna el momento actual en UTC. Wrapper para testear facilmente."""
@@ -40,6 +40,7 @@ def api_estado(estado: SolicitudEstado) -> str:
 # ---------------------------------------------------------------------
 # Vista interna
 # ---------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class SolicitudView:
@@ -71,6 +72,7 @@ class SolicitudView:
 # Validaciones y lookups
 # ---------------------------------------------------------------------
 
+
 def validate_direction(origen: Warehouse, destino: Warehouse) -> None:
     """Valida la regla de direccion (ADR-0002).
 
@@ -82,17 +84,14 @@ def validate_direction(origen: Warehouse, destino: Warehouse) -> None:
     - destino DEBE ser principal.
     """
     if origen.id == destino.id:
-        raise InvalidSolicitudDirectionError(
-            "Origen y destino no pueden ser la misma bodega."
-        )
+        raise InvalidSolicitudDirectionError("Origen y destino no pueden ser la misma bodega.")
     if origen.warehouse_type == "mecanico_box" and not origen.parent_warehouse_id:
         raise InvalidSolicitudDirectionError(
             f"Bodega origen '{origen.code}' es box sin auxiliar padre asignado."
         )
     if destino.warehouse_type == "mecanico_box":
         raise InvalidSolicitudDirectionError(
-            f"Bodega destino '{destino.code}' es box de mecanico; "
-            "no recibe solicitudes de recarga."
+            f"Bodega destino '{destino.code}' es box de mecanico; no recibe solicitudes de recarga."
         )
     if origen.warehouse_type == "principal":
         raise InvalidSolicitudDirectionError(
@@ -106,9 +105,7 @@ def validate_direction(origen: Warehouse, destino: Warehouse) -> None:
         )
 
 
-async def lock_or_404(
-    repo, solicitud_id: uuid.UUID
-) -> SolicitudRecarga:
+async def lock_or_404(repo, solicitud_id: uuid.UUID) -> SolicitudRecarga:
     """Obtiene la solicitud con lock pesimista o lanza 404."""
     solicitud = await repo.get_by_id_with_lock(solicitud_id)
     if solicitud is None:
@@ -116,9 +113,7 @@ async def lock_or_404(
     return solicitud
 
 
-async def to_view(
-    session: AsyncSession, repo, solicitud_id: uuid.UUID
-) -> SolicitudView:
+async def to_view(session: AsyncSession, repo, solicitud_id: uuid.UUID) -> SolicitudView:
     """Construye la vista interna (dataclass) a partir del modelo.
 
     Cachea bodegas y productos en la sesion actual para evitar N+1
@@ -145,17 +140,19 @@ async def to_view(
 
     for d in detalles:
         prod = productos.get(d.id_producto)
-        detalles_view.append({
-            "id_solicitud": d.id_solicitud,
-            "id_producto": d.id_producto,
-            "product_sku": prod.sku if prod else None,
-            "product_name": prod.name if prod else None,
-            "cantidad_solicitada": d.cantidad_solicitada,
-            "cantidad_despachada": d.cantidad_despachada,
-            "cantidad_recibida": d.cantidad_recibida,
-            "barcode_validado": d.barcode_validado,
-            "notas": d.notas,
-        })
+        detalles_view.append(
+            {
+                "id_solicitud": d.id_solicitud,
+                "id_producto": d.id_producto,
+                "product_sku": prod.sku if prod else None,
+                "product_name": prod.name if prod else None,
+                "cantidad_solicitada": d.cantidad_solicitada,
+                "cantidad_despachada": d.cantidad_despachada,
+                "cantidad_recibida": d.cantidad_recibida,
+                "barcode_validado": d.barcode_validado,
+                "notas": d.notas,
+            }
+        )
         total_unidades += d.cantidad_solicitada
 
     return SolicitudView(

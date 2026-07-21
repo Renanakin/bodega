@@ -9,6 +9,7 @@ Fase 10: ahora usa ``get_settings().password_hash_iterations`` (antes tenia
 hashes existentes se siguen validando (PBKDF2 es determinista con la misma
 sal + iterations). Solo se re-hashean en el proximo login exitoso.
 """
+
 from __future__ import annotations
 
 import hashlib

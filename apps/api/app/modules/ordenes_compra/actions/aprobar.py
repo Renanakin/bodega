@@ -6,12 +6,11 @@ Hay dos paths:
 - `aprobar_con_token`: desde el endpoint publico HMAC (sin auth).
   Valida firma, expiracion y one-shot (invalida jti al consumir).
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     ExpiredApprovalTokenError,
@@ -28,14 +27,13 @@ from app.db.models.notificaciones import NotificationType
 from app.db.models.ordenes_compra import OrdenCompraEstado
 from app.db.models.users import UserRole
 from app.modules.notificaciones.service import NotificacionesService
-
 from app.modules.ordenes_compra.actions._common import (
     ESTADOS_TERMINALES,
     OrdenCompraView,
     require_oc,
     to_view,
 )
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = get_logger(__name__)
 
@@ -66,10 +64,7 @@ async def aprobar_orden(
         tipo=NotificationType.ORDEN_COMPRA_APROBADA.value,
         titulo=f"OC {oc.codigo} aprobada",
         mensaje=f"Proveedor: {oc.proveedor_nombre}",
-        payload=(
-            f'{{"oc_id": "{oc.id}", '
-            f'"codigo": "{oc.codigo}"}}'
-        ),
+        payload=(f'{{"oc_id": "{oc.id}", "codigo": "{oc.codigo}"}}'),
     )
 
     return await to_view(session, oc)
@@ -140,11 +135,7 @@ async def aprobar_con_token(
             tipo=NotificationType.ORDEN_COMPRA_APROBADA.value,
             titulo=f"OC {oc.codigo} aprobada (via token)",
             mensaje=f"Proveedor: {oc.proveedor_nombre}",
-            payload=(
-                f'{{"oc_id": "{oc.id}", '
-                f'"codigo": "{oc.codigo}", '
-                f'"via": "token"}}'
-            ),
+            payload=(f'{{"oc_id": "{oc.id}", "codigo": "{oc.codigo}", "via": "token"}}'),
         )
     else:
         await notif.notify_role_except_actor(
@@ -152,14 +143,8 @@ async def aprobar_con_token(
             roles=[UserRole.ADMIN, UserRole.SUPERVISOR],
             tipo=NotificationType.ORDEN_COMPRA_RECHAZADA.value,
             titulo=f"OC {oc.codigo} rechazada (via token)",
-            mensaje=(
-                f"Motivo: {oc.motivo_rechazo or 'No especificado'}"
-            ),
-            payload=(
-                f'{{"oc_id": "{oc.id}", '
-                f'"codigo": "{oc.codigo}", '
-                f'"via": "token"}}'
-            ),
+            mensaje=(f"Motivo: {oc.motivo_rechazo or 'No especificado'}"),
+            payload=(f'{{"oc_id": "{oc.id}", "codigo": "{oc.codigo}", "via": "token"}}'),
         )
 
     return await to_view(session, oc)

@@ -10,6 +10,7 @@ Reglas:
 
 Aplica a Fase 3; en Fases 4-5 se conectan inventory y transfers.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -17,13 +18,14 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.errors import InsufficientStockError, ProductNotFoundError, WarehouseNotFoundError
 from app.core.logging import get_logger
 from app.db.models.inventory import InventoryMovement, MovementType, StockLevel
 from app.db.models.products import Product
 from app.db.models.warehouses import Warehouse
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     pass
@@ -111,9 +113,7 @@ class MovementEngine:
         result = await self._session.execute(stmt)
         stock = result.scalar_one_or_none()
 
-        previous_quantity: Decimal = (
-            stock.quantity if stock is not None else Decimal("0")
-        )
+        previous_quantity: Decimal = stock.quantity if stock is not None else Decimal("0")
         new_quantity = previous_quantity + delta
 
         # 3. Validar no oversell
@@ -202,4 +202,5 @@ def _utcnow_naive() -> object:
     el timezone. Para SQLite (tests) acepta naive o aware.
     """
     from datetime import UTC, datetime
+
     return datetime.now(UTC)

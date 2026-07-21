@@ -15,39 +15,32 @@ NOTA IMPORTANTE sobre el estado `partial`:
     `partial` en la API pública para alinear con el spec del usuario.
     El mapeo se hace en el servicio via `_ESTADO_API`.
 """
+
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Sequence
 
-from sqlalchemy import and_, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.db.models.products import Product
 from app.db.models.solicitudes import (
     DetalleSolicitudRecarga,
     SolicitudEstado,
     SolicitudRecarga,
 )
-from app.db.models.warehouses import Warehouse
-
+from sqlalchemy import and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Estados del modelo (alineados con la migración 0006).
 _ESTADOS_MODELO: frozenset[str] = frozenset(
-    {"pending", "approved", "in_transit", "partially_received",
-     "received", "rejected", "cancelled"}
+    {"pending", "approved", "in_transit", "partially_received", "received", "rejected", "cancelled"}
 )
 
 
 def _validate_estado(estado: str) -> None:
     """Helper: rechaza valores fuera del namespace del modelo."""
     if estado not in _ESTADOS_MODELO:
-        raise ValueError(
-            f"Estado '{estado}' no permitido. "
-            f"Validos: {sorted(_ESTADOS_MODELO)}"
-        )
+        raise ValueError(f"Estado '{estado}' no permitido. Validos: {sorted(_ESTADOS_MODELO)}")
 
 
 class SolicitudRepository:
@@ -110,17 +103,13 @@ class SolicitudRepository:
 
     # ------------------------------------------------------------------ READ
 
-    async def get_by_id(
-        self, solicitud_id: uuid.UUID
-    ) -> SolicitudRecarga | None:
+    async def get_by_id(self, solicitud_id: uuid.UUID) -> SolicitudRecarga | None:
         """Lee una solicitud SIN lock. Usar para GETs."""
         stmt = select(SolicitudRecarga).where(SolicitudRecarga.id == solicitud_id)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_id_with_lock(
-        self, solicitud_id: uuid.UUID
-    ) -> SolicitudRecarga | None:
+    async def get_by_id_with_lock(self, solicitud_id: uuid.UUID) -> SolicitudRecarga | None:
         """Lee una solicitud CON lock pesimista (Postgres: SELECT FOR UPDATE).
 
         En SQLite (tests) el lock lo da BEGIN IMMEDIATE del engine; el
@@ -131,17 +120,11 @@ class SolicitudRepository:
             Exception: propaga errores de BD. El caller (service) es
                 responsable de manejar el rollback.
         """
-        stmt = (
-            select(SolicitudRecarga)
-            .where(SolicitudRecarga.id == solicitud_id)
-            .with_for_update()
-        )
+        stmt = select(SolicitudRecarga).where(SolicitudRecarga.id == solicitud_id).with_for_update()
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_id_with_details(
-        self, solicitud_id: uuid.UUID
-    ) -> SolicitudRecarga | None:
+    async def get_by_id_with_details(self, solicitud_id: uuid.UUID) -> SolicitudRecarga | None:
         """Lee la solicitud. NO hace eager loading (modelo sin relationship).
 
         Las lineas y bodegas se cargan por separado via `list_detalles()` y
@@ -156,9 +139,7 @@ class SolicitudRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_detalles(
-        self, solicitud_id: uuid.UUID
-    ) -> Sequence[DetalleSolicitudRecarga]:
+    async def list_detalles(self, solicitud_id: uuid.UUID) -> Sequence[DetalleSolicitudRecarga]:
         """Lista las lineas de detalle de una solicitud."""
         stmt = select(DetalleSolicitudRecarga).where(
             DetalleSolicitudRecarga.id_solicitud == solicitud_id
@@ -278,21 +259,19 @@ class SolicitudRepository:
 
     async def count_by_estado(self) -> dict[str, int]:
         """Conteo de solicitudes agrupadas por estado (namespace modelo)."""
-        stmt = (
-            select(SolicitudRecarga.estado, func.count(SolicitudRecarga.id))
-            .group_by(SolicitudRecarga.estado)
+        stmt = select(SolicitudRecarga.estado, func.count(SolicitudRecarga.id)).group_by(
+            SolicitudRecarga.estado
         )
         result = await self._session.execute(stmt)
-        return {estado: count for estado, count in result.all()}
+        return dict(result.all())
 
     async def count_by_bodega_origen(self) -> dict[uuid.UUID, int]:
         """Conteo de solicitudes agrupadas por bodega origen."""
-        stmt = (
-            select(SolicitudRecarga.id_bodega_origen, func.count(SolicitudRecarga.id))
-            .group_by(SolicitudRecarga.id_bodega_origen)
+        stmt = select(SolicitudRecarga.id_bodega_origen, func.count(SolicitudRecarga.id)).group_by(
+            SolicitudRecarga.id_bodega_origen
         )
         result = await self._session.execute(stmt)
-        return {bid: count for bid, count in result.all()}
+        return dict(result.all())
 
     # -------------------------------------------------------------- UTIL
 

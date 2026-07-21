@@ -24,24 +24,27 @@ Cubre:
 - Endpoints /solicitudes (listar, get, filtros).
 - 2 dispatch concurrentes: no oversell.
 """
+
 from __future__ import annotations
 
-import asyncio
 import os
 import unittest
 from decimal import Decimal
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 # Configurar el AsyncEngine antes de importar la app
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ENVIRONMENT", "development")
-os.environ.setdefault(
-    "JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX"
-)
+os.environ.setdefault("JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
-import pytest_asyncio  # noqa: E402
+from app.core.config import reset_settings_cache  # noqa: E402
+from app.core.security import hash_password  # noqa: E402
+from app.db import models  # noqa: E402, F401
+from app.db.base import Base  # noqa: E402
+from app.main import create_app  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import event  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
@@ -50,15 +53,6 @@ from sqlalchemy.ext.asyncio import (  # noqa: E402
     create_async_engine,
 )
 from sqlalchemy.pool import StaticPool  # noqa: E402
-
-from app.core.config import reset_settings_cache  # noqa: E402
-from app.core.security import hash_password  # noqa: E402
-from app.db import models  # noqa: E402, F401
-from app.db.base import Base  # noqa: E402
-from app.main import create_app  # noqa: E402
-from app.modules.solicitudes.service import SolicitudService  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
 
 reset_settings_cache()
 
@@ -118,10 +112,11 @@ async def _setup_demo_data(session: AsyncSession) -> dict[str, Any]:
         "aux2_id": uuid4(),
         "aux3_id": uuid4(),
     }
-    from app.db.models.warehouses import Warehouse
-    from app.db.models.products import Product
+    from datetime import UTC, datetime
+
     from app.db.models.inventory import StockLevel
-    from datetime import datetime, UTC
+    from app.db.models.products import Product
+    from app.db.models.warehouses import Warehouse
 
     wh_principal_obj = Warehouse(
         id=warehouses["principal_id"],
@@ -206,6 +201,7 @@ class SolicitudesCreateTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self) -> None:
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
 
         self.engine = _create_test_engine()
@@ -216,12 +212,14 @@ class SolicitudesCreateTestCase(unittest.IsolatedAsyncioTestCase):
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
         import app.db.session as session_module
+
         session_module._engine = self.engine
         session_module._session_factory = self.session_factory
 
         # Crear la app y setear el legacy db para auth
         self.app = create_app()
         from app.db.session import get_session
+
         async def _override_get_session():
             async with self.session_factory() as s:
                 try:
@@ -229,6 +227,7 @@ class SolicitudesCreateTestCase(unittest.IsolatedAsyncioTestCase):
                 except Exception:
                     await s.rollback()
                     raise
+
         self.app.dependency_overrides[get_session] = _override_get_session
 
         # Setup datos (incluye legacy_db para usuarios)
@@ -247,6 +246,7 @@ class SolicitudesCreateTestCase(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
         self.legacy_db.close()
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
 
     def _id(self, key: str) -> str:
@@ -306,9 +306,7 @@ class SolicitudesCreateTestCase(unittest.IsolatedAsyncioTestCase):
             json={
                 "bodega_origen_id": self._id("principal_id"),
                 "bodega_destino_id": self._id("aux1_id"),
-                "lineas": [
-                    {"producto_id": self._id("p1_id"), "cantidad_solicitada": 1}
-                ],
+                "lineas": [{"producto_id": self._id("p1_id"), "cantidad_solicitada": 1}],
             },
             headers=self.headers,
         )
@@ -322,9 +320,7 @@ class SolicitudesCreateTestCase(unittest.IsolatedAsyncioTestCase):
             json={
                 "bodega_origen_id": self._id("aux1_id"),
                 "bodega_destino_id": self._id("aux2_id"),
-                "lineas": [
-                    {"producto_id": self._id("p1_id"), "cantidad_solicitada": 1}
-                ],
+                "lineas": [{"producto_id": self._id("p1_id"), "cantidad_solicitada": 1}],
             },
             headers=self.headers,
         )
@@ -338,9 +334,7 @@ class SolicitudesCreateTestCase(unittest.IsolatedAsyncioTestCase):
             json={
                 "bodega_origen_id": self._id("aux1_id"),
                 "bodega_destino_id": self._id("aux1_id"),
-                "lineas": [
-                    {"producto_id": self._id("p1_id"), "cantidad_solicitada": 1}
-                ],
+                "lineas": [{"producto_id": self._id("p1_id"), "cantidad_solicitada": 1}],
             },
             headers=self.headers,
         )
@@ -354,9 +348,7 @@ class SolicitudesCreateTestCase(unittest.IsolatedAsyncioTestCase):
             json={
                 "bodega_origen_id": self._id("aux1_id"),
                 "bodega_destino_id": self._id("principal_id"),
-                "lineas": [
-                    {"producto_id": self._id("p_inactivo_id"), "cantidad_solicitada": 1}
-                ],
+                "lineas": [{"producto_id": self._id("p_inactivo_id"), "cantidad_solicitada": 1}],
             },
             headers=self.headers,
         )
@@ -369,6 +361,7 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self) -> None:
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
         self.engine = _create_test_engine()
         async with self.engine.begin() as conn:
@@ -377,11 +370,13 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
         import app.db.session as session_module
+
         session_module._engine = self.engine
         session_module._session_factory = self.session_factory
 
         self.app = create_app()
         from app.db.session import get_session
+
         async def _override_get_session():
             async with self.session_factory() as s:
                 try:
@@ -389,6 +384,7 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
                 except Exception:
                     await s.rollback()
                     raise
+
         self.app.dependency_overrides[get_session] = _override_get_session
 
         setup = await _setup_demo_data(self.session_factory())
@@ -418,6 +414,7 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.engine.dispose()
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
 
     def _create_solicitud(self, lineas: list[dict] | None = None) -> dict:
@@ -440,8 +437,9 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def _stock_principal(self, producto_id) -> Decimal:
         async with self.session_factory() as s:
-            from sqlalchemy import select, text
             from app.db.models.inventory import StockLevel
+            from sqlalchemy import select
+
             stmt = select(StockLevel).where(
                 StockLevel.warehouse_id == self._id("principal_id"),
                 StockLevel.product_id == producto_id,
@@ -467,11 +465,13 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_aprobar_solicitud_ya_aprobada_falla(self) -> None:
         sol = self._create_solicitud()
         self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         resp = self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         self.assertEqual(resp.status_code, 409, resp.text)
@@ -479,20 +479,21 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
 
     # 9. Despachar descuenta de Principal
     async def test_despachar_solicitud_descuenta_de_principal(self) -> None:
-        sol = self._create_solicitud(lineas=[
-            {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 30},
-        ])
+        sol = self._create_solicitud(
+            lineas=[
+                {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 30},
+            ]
+        )
         inicial = await self._stock_principal(self._id("p1_id"))
         self.assertEqual(inicial, Decimal("100"))
         self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         resp = self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 30}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_despachada": 30}]},
             headers=self.headers_origen,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -501,18 +502,19 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
 
     # 10. Stock insuficiente
     async def test_despachar_solicitud_con_stock_insuficiente_falla(self) -> None:
-        sol = self._create_solicitud(lineas=[
-            {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 500},
-        ])
+        sol = self._create_solicitud(
+            lineas=[
+                {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 500},
+            ]
+        )
         self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         resp = self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 500}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_despachada": 500}]},
             headers=self.headers_origen,
         )
         self.assertEqual(resp.status_code, 409, resp.text)
@@ -523,9 +525,7 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
         sol = self._create_solicitud()
         resp = self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 10}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_despachada": 10}]},
             headers=self.headers_origen,
         )
         self.assertEqual(resp.status_code, 409)
@@ -533,33 +533,33 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
 
     # 12. Recibir incrementa Auxiliar
     async def test_recibir_solicitud_incrementa_en_auxiliar(self) -> None:
-        sol = self._create_solicitud(lineas=[
-            {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 30},
-        ])
+        sol = self._create_solicitud(
+            lineas=[
+                {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 30},
+            ]
+        )
         self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 30}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_despachada": 30}]},
             headers=self.headers_origen,
         )
         resp = self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/receive",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_recibida": 30}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_recibida": 30}]},
             headers=self.headers_destino,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["estado"], "received")
         # Auxiliar ahora tiene 30
         async with self.session_factory() as s:
-            from sqlalchemy import select
             from app.db.models.inventory import StockLevel
+            from sqlalchemy import select
+
             stmt = select(StockLevel).where(
                 StockLevel.warehouse_id == self._id("aux1_id"),
                 StockLevel.product_id == self._id("p1_id"),
@@ -571,25 +571,24 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
 
     # 13. Recibir parcial = partially_received
     async def test_recibir_solicitud_parcial_queda_en_estado_partial(self) -> None:
-        sol = self._create_solicitud(lineas=[
-            {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 50},
-        ])
+        sol = self._create_solicitud(
+            lineas=[
+                {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 50},
+            ]
+        )
         self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 50}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_despachada": 50}]},
             headers=self.headers_origen,
         )
         resp = self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/receive",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_recibida": 20}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_recibida": 20}]},
             headers=self.headers_destino,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -597,25 +596,24 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
 
     # 14. Recibir total = received
     async def test_recibir_solicitud_total_pasa_a_received(self) -> None:
-        sol = self._create_solicitud(lineas=[
-            {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 50},
-        ])
+        sol = self._create_solicitud(
+            lineas=[
+                {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 50},
+            ]
+        )
         self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 50}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_despachada": 50}]},
             headers=self.headers_origen,
         )
         resp = self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/receive",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_recibida": 50}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_recibida": 50}]},
             headers=self.headers_destino,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -624,29 +622,32 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
 
     # 15. Barcode invalido
     async def test_recibir_solicitud_con_barcode_invalido_falla(self) -> None:
-        sol = self._create_solicitud(lineas=[
-            {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 10},
-        ])
+        sol = self._create_solicitud(
+            lineas=[
+                {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 10},
+            ]
+        )
         self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 10}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_despachada": 10}]},
             headers=self.headers_origen,
         )
         resp = self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/receive",
-            json={"lineas": [
-                {
-                    "producto_id": str(self._id("p1_id")),
-                    "cantidad_recibida": 10,
-                    "barcode": "9999999999999",
-                }
-            ]},
+            json={
+                "lineas": [
+                    {
+                        "producto_id": str(self._id("p1_id")),
+                        "cantidad_recibida": 10,
+                        "barcode": "9999999999999",
+                    }
+                ]
+            },
             headers=self.headers_destino,
         )
         self.assertEqual(resp.status_code, 409, resp.text)
@@ -666,18 +667,19 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
 
     # 17. Rechazar en transito falla
     async def test_rechazar_solicitud_en_transito_falla(self) -> None:
-        sol = self._create_solicitud(lineas=[
-            {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 10},
-        ])
+        sol = self._create_solicitud(
+            lineas=[
+                {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 10},
+            ]
+        )
         self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 10}
-            ]},
+            json={"lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_despachada": 10}]},
             headers=self.headers_origen,
         )
         resp = self.client.post(
@@ -703,7 +705,8 @@ class SolicitudesWorkflowTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_cancelar_solicitud_aprobada_falla(self) -> None:
         sol = self._create_solicitud()
         self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         )
         resp = self.client.post(
@@ -720,6 +723,7 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self) -> None:
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
         self.engine = _create_test_engine()
         async with self.engine.begin() as conn:
@@ -728,11 +732,13 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
         import app.db.session as session_module
+
         session_module._engine = self.engine
         session_module._session_factory = self.session_factory
 
         self.app = create_app()
         from app.db.session import get_session
+
         async def _override_get_session():
             async with self.session_factory() as s:
                 try:
@@ -740,6 +746,7 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
                 except Exception:
                     await s.rollback()
                     raise
+
         self.app.dependency_overrides[get_session] = _override_get_session
 
         setup = await _setup_demo_data(self.session_factory())
@@ -769,6 +776,7 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.engine.dispose()
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
 
     # 20. E2E completo
@@ -787,25 +795,30 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
         ).json()
         self.assertEqual(sol["estado"], "pending")
         sol = self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_supervisor,
         ).json()
         self.assertEqual(sol["estado"], "approved")
         sol = self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/dispatch",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 10},
-                {"producto_id": str(self._id("p2_id")), "cantidad_despachada": 20},
-            ]},
+            json={
+                "lineas": [
+                    {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 10},
+                    {"producto_id": str(self._id("p2_id")), "cantidad_despachada": 20},
+                ]
+            },
             headers=self.headers_origen,
         ).json()
         self.assertEqual(sol["estado"], "in_transit")
         sol = self.client.post(
             f"/api/v1/solicitudes/{sol['id']}/receive",
-            json={"lineas": [
-                {"producto_id": str(self._id("p1_id")), "cantidad_recibida": 10},
-                {"producto_id": str(self._id("p2_id")), "cantidad_recibida": 20},
-            ]},
+            json={
+                "lineas": [
+                    {"producto_id": str(self._id("p1_id")), "cantidad_recibida": 10},
+                    {"producto_id": str(self._id("p2_id")), "cantidad_recibida": 20},
+                ]
+            },
             headers=self.headers_destino,
         ).json()
         self.assertEqual(sol["estado"], "received")
@@ -813,20 +826,24 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
     # 21. Distribucion multibodega
     async def test_distribucion_multibodega_formato_spec(self) -> None:
         # Cargar stock en aux1 y aux2 para el mismo SKU
+        from datetime import UTC, datetime
+
         from app.db.models.inventory import StockLevel
-        from datetime import datetime, UTC
+
         for aux_id in [self._id("aux1_id"), self._id("aux2_id")]:
             async with self.session_factory() as s:
-                s.add(StockLevel(
-                    warehouse_id=aux_id,
-                    product_id=self._id("p1_id"),
-                    quantity=Decimal("50"),
-                    min_quantity=Decimal("5"),
-                    updated_at=datetime.now(UTC),
-                ))
+                s.add(
+                    StockLevel(
+                        warehouse_id=aux_id,
+                        product_id=self._id("p1_id"),
+                        quantity=Decimal("50"),
+                        min_quantity=Decimal("5"),
+                        updated_at=datetime.now(UTC),
+                    )
+                )
                 await s.commit()
         resp = self.client.get(
-            f"/api/v1/solicitudes/distribucion/multibodega?sku={self._id("p1_sku")}",
+            f"/api/v1/solicitudes/distribucion/multibodega?sku={self._id('p1_sku')}",
             headers=self.headers_supervisor,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -847,9 +864,7 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
                 json={
                     "bodega_origen_id": str(self._id("aux1_id")),
                     "bodega_destino_id": str(self._id("principal_id")),
-                    "lineas": [
-                        {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 5}
-                    ],
+                    "lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 5}],
                 },
                 headers=self.headers_origen,
             )
@@ -860,7 +875,7 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()), 3)
         resp = self.client.get(
-            f"/api/v1/solicitudes?bodega_origen_id={self._id("aux1_id")}",
+            f"/api/v1/solicitudes?bodega_origen_id={self._id('aux1_id')}",
             headers=self.headers_origen,
         )
         self.assertEqual(len(resp.json()), 3)
@@ -872,9 +887,7 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
             json={
                 "bodega_origen_id": str(self._id("aux1_id")),
                 "bodega_destino_id": str(self._id("principal_id")),
-                "lineas": [
-                    {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 5}
-                ],
+                "lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 5}],
             },
             headers=self.headers_origen,
         ).json()
@@ -901,14 +914,13 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
             json={
                 "bodega_origen_id": str(self._id("aux1_id")),
                 "bodega_destino_id": str(self._id("principal_id")),
-                "lineas": [
-                    {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 5}
-                ],
+                "lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 5}],
             },
             headers=self.headers_origen,
         ).json()
         resp = self.client.post(
-            f"/api/v1/solicitudes/{sol['id']}/approve", json={},
+            f"/api/v1/solicitudes/{sol['id']}/approve",
+            json={},
             headers=self.headers_origen,
         )
         self.assertEqual(resp.status_code, 403)
@@ -920,9 +932,7 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
             json={
                 "bodega_origen_id": str(self._id("aux1_id")),
                 "bodega_destino_id": str(self._id("principal_id")),
-                "lineas": [
-                    {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 5}
-                ],
+                "lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 5}],
             },
             headers=self.headers_origen,
         ).json()
@@ -948,24 +958,23 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
                 json={
                     "bodega_origen_id": str(self._id("aux1_id")),
                     "bodega_destino_id": str(self._id("principal_id")),
-                    "lineas": [
-                        {"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 40}
-                    ],
+                    "lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_solicitada": 40}],
                 },
                 headers=self.headers_origen,
             )
             sols.append(resp.json())
             self.client.post(
-                f"/api/v1/solicitudes/{resp.json()['id']}/approve", json={},
+                f"/api/v1/solicitudes/{resp.json()['id']}/approve",
+                json={},
                 headers=self.headers_supervisor,
             )
 
         def dispatch(sol_id):
             return self.client.post(
                 f"/api/v1/solicitudes/{sol_id}/dispatch",
-                json={"lineas": [
-                    {"producto_id": str(self._id("p1_id")), "cantidad_despachada": 40}
-                ]},
+                json={
+                    "lineas": [{"producto_id": str(self._id("p1_id")), "cantidad_despachada": 40}]
+                },
                 headers=self.headers_origen,
             )
 
@@ -988,8 +997,9 @@ class SolicitudesE2ETestCase(unittest.IsolatedAsyncioTestCase):
 
     async def _stock_principal(self, producto_id) -> Decimal:
         async with self.session_factory() as s:
-            from sqlalchemy import select
             from app.db.models.inventory import StockLevel
+            from sqlalchemy import select
+
             stmt = select(StockLevel).where(
                 StockLevel.warehouse_id == self._id("principal_id"),
                 StockLevel.product_id == producto_id,

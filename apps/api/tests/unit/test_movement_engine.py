@@ -9,6 +9,7 @@ Cubre:
 - Cálculo de delta correcto por movement_type.
 - Log estructurado emitido con todos los campos.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -54,7 +55,9 @@ class TestMovementEngineApply:
 
     @pytest.mark.asyncio
     async def test_in_movement_creates_stock(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         warehouse = Warehouse(
             id=uuid.uuid4(),
@@ -92,7 +95,9 @@ class TestMovementEngineApply:
 
     @pytest.mark.asyncio
     async def test_out_movement_decrements_stock(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         warehouse = Warehouse(
             id=uuid.uuid4(),
@@ -138,7 +143,9 @@ class TestMovementEngineApply:
 
     @pytest.mark.asyncio
     async def test_oversell_raises_insufficient_stock(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         warehouse = Warehouse(
             id=uuid.uuid4(),
@@ -185,7 +192,9 @@ class TestMovementEngineApply:
 
     @pytest.mark.asyncio
     async def test_warehouse_not_found(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         engine = MovementEngine(async_session)
         with pytest.raises(WarehouseNotFoundError):
@@ -200,7 +209,9 @@ class TestMovementEngineApply:
 
     @pytest.mark.asyncio
     async def test_product_not_found(
-        self, async_engine, async_session: AsyncSession  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session: AsyncSession,  # type: ignore[no-untyped-def]
     ) -> None:
         warehouse = Warehouse(
             id=uuid.uuid4(),

@@ -7,6 +7,7 @@ Este test requiere:
 
 Si no hay Postgres, se skippea con razón clara.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -14,14 +15,11 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from app.db.models.inventory import InventoryMovement, MovementType, StockLevel
+from app.db.models.products import Product
+from app.db.models.warehouses import Warehouse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-
-from app.db.base import Base
-from app.db.models.warehouses import Warehouse
-from app.db.models.products import Product
-from app.db.models.inventory import StockLevel, InventoryMovement, MovementType
-
 
 pytestmark = [pytest.mark.integration, pytest.mark.concurrency]
 
@@ -50,7 +48,8 @@ class TestConcurrentMovementsPostgres:
 
     @pytest.mark.asyncio
     async def test_50_parallel_out_movements_no_oversell(
-        self, postgres_required  # type: ignore[no-untyped-def]
+        self,
+        postgres_required,  # type: ignore[no-untyped-def]
     ) -> None:
         """
         50 tasks asyncio que sacan 1 unidad cada una de un stock inicial de 50.
@@ -118,9 +117,9 @@ class TestConcurrentMovementsPostgres:
                 select(StockLevel).where(StockLevel.warehouse_id == wh_id)
             )
             final = result.scalar_one()
-            assert final.quantity >= Decimal("0.00"), (
-                f"OVERSELL DETECTADO: stock final = {final.quantity}"
-            )
+            assert final.quantity >= Decimal(
+                "0.00"
+            ), f"OVERSELL DETECTADO: stock final = {final.quantity}"
             # Si todas tuvieron éxito, stock debe ser exactamente 0
             if successes == 50:
                 assert final.quantity == Decimal("0.00")

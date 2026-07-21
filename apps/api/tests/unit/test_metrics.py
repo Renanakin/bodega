@@ -16,16 +16,12 @@ Para evitar acoplamiento con el registry global, usamos
 ``prometheus_client.REGISTRY`` solo para verificar que las metricas
 estan registradas (busca por nombre).
 """
+
 from __future__ import annotations
 
-import uuid
-from unittest.mock import AsyncMock, patch
+import contextlib
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from prometheus_client import REGISTRY
-
 from app.modules.observability.metrics import (
     EMAIL_DEAD_TOTAL,
     EMAIL_FAILED_TOTAL,
@@ -34,7 +30,9 @@ from app.modules.observability.metrics import (
     SOLICITUDES_CREADAS,
     instrument_app,
 )
-
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
 
 pytestmark = pytest.mark.unit
 
@@ -71,9 +69,7 @@ class TestSolicitudesCreadasCounter:
             prioridad="alta",
         )
         # Incrementar
-        SOLICITUDES_CREADAS.labels(
-            bodega_origen_tipo="auxiliar", prioridad="alta"
-        ).inc()
+        SOLICITUDES_CREADAS.labels(bodega_origen_tipo="auxiliar", prioridad="alta").inc()
         # Verificar delta
         after = _get_counter_value(
             SOLICITUDES_CREADAS,
@@ -85,12 +81,8 @@ class TestSolicitudesCreadasCounter:
     def test_metric_solicitudes_creadas_labels_independientes(self) -> None:
         """Labels diferentes son contadores independientes (cardinalidad)."""
         # Incrementar el mismo label
-        SOLICITUDES_CREADAS.labels(
-            bodega_origen_tipo="mecanico_box", prioridad="urgente"
-        ).inc()
-        SOLICITUDES_CREADAS.labels(
-            bodega_origen_tipo="mecanico_box", prioridad="urgente"
-        ).inc()
+        SOLICITUDES_CREADAS.labels(bodega_origen_tipo="mecanico_box", prioridad="urgente").inc()
+        SOLICITUDES_CREADAS.labels(bodega_origen_tipo="mecanico_box", prioridad="urgente").inc()
         v_box_urg = _get_counter_value(
             SOLICITUDES_CREADAS,
             bodega_origen_tipo="mecanico_box",
@@ -124,22 +116,12 @@ class TestEmailCounters:
 
     def test_metric_email_failed_incrementa_con_error_type(self) -> None:
         """``EMAIL_FAILED_TOTAL`` acepta label ``error_type``."""
-        base_transient = _get_counter_value(
-            EMAIL_FAILED_TOTAL, error_type="transient"
-        )
-        base_permanent = _get_counter_value(
-            EMAIL_FAILED_TOTAL, error_type="permanent"
-        )
+        base_transient = _get_counter_value(EMAIL_FAILED_TOTAL, error_type="transient")
+        base_permanent = _get_counter_value(EMAIL_FAILED_TOTAL, error_type="permanent")
         EMAIL_FAILED_TOTAL.labels(error_type="transient").inc()
         EMAIL_FAILED_TOTAL.labels(error_type="permanent").inc()
-        assert (
-            _get_counter_value(EMAIL_FAILED_TOTAL, error_type="transient")
-            == base_transient + 1
-        )
-        assert (
-            _get_counter_value(EMAIL_FAILED_TOTAL, error_type="permanent")
-            == base_permanent + 1
-        )
+        assert _get_counter_value(EMAIL_FAILED_TOTAL, error_type="transient") == base_transient + 1
+        assert _get_counter_value(EMAIL_FAILED_TOTAL, error_type="permanent") == base_permanent + 1
 
     def test_metric_email_dead_total_incrementa(self) -> None:
         base = _get_counter_value(EMAIL_DEAD_TOTAL)
@@ -192,11 +174,9 @@ class TestMetricsEndpoint:
         instrument_app(app)
         # Segunda llamada: debe ser no-op o levantar (preferimos no-op
         # via try/except interno). Solo verificamos que la app sigue
-        # funcionando.
-        try:
+        # funcionando. Toleramos double-instrumentation (puede ser warning).
+        with contextlib.suppress(Exception):  # noqa: BLE001
             instrument_app(app)
-        except Exception:  # noqa: BLE001
-            pass  # toleramos double-instrumentation (puede ser warning)
         client = TestClient(app)
         # Solo debe haber UN endpoint /metrics
         response = client.get("/metrics")
@@ -211,7 +191,7 @@ class TestMetricsRegistred:
         # Buscar en el registry por nombre. ``get_sample_value`` retorna
         # None si la metrica no existe.
         # El nombre registrado es el del Counter con su prefijo.
-        names = [m.name for m in REGISTRY.collect() if m.samples]
+        [m.name for m in REGISTRY.collect() if m.samples]
         # Buscar la metrica con label ``bodega_origen_tipo``
         found = False
         for metric in REGISTRY.collect():

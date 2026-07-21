@@ -6,12 +6,11 @@ Valida:
 - Healthcheck con ping a DB y Redis.
 - get_session como dependency de FastAPI.
 """
+
 from __future__ import annotations
 
 import pytest
-
 from app.db.session import detect_backend, get_engine, ping_database
-
 
 pytestmark = pytest.mark.integration
 

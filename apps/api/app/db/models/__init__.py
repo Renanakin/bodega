@@ -8,6 +8,7 @@ Reglas aplicadas:
 Importar este archivo desde alembic/env.py para que todos los modelos
 sean visibles al autogenerate.
 """
+
 from __future__ import annotations
 
 # Catalogo

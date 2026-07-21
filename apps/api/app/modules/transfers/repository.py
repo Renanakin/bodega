@@ -26,7 +26,9 @@ def _to_transfer(row) -> TransferRecord:
         incident_notes=row["incident_notes"],
         created_at=datetime.fromisoformat(row["created_at"]),
         approved_at=datetime.fromisoformat(row["approved_at"]) if row["approved_at"] else None,
-        dispatched_at=datetime.fromisoformat(row["dispatched_at"]) if row["dispatched_at"] else None,
+        dispatched_at=datetime.fromisoformat(row["dispatched_at"])
+        if row["dispatched_at"]
+        else None,
         received_at=datetime.fromisoformat(row["received_at"]) if row["received_at"] else None,
     )
 

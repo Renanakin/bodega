@@ -4,6 +4,7 @@ Conftest global: fixtures compartidas entre unit e integration tests.
 Regla R6: las fixtures complejas (DB, async engine) viven aquí para evitar
 duplicación entre conftest.py de unit/ e integration/.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -37,6 +38,7 @@ def env_development(monkeypatch: pytest.MonkeyPatch) -> None:
 def caplog_with_structlog(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     """Fixture que captura tanto logs de stdlib logging como de structlog."""
     import logging
+
     caplog.set_level(logging.DEBUG)
     return caplog
 
@@ -84,9 +86,8 @@ async def async_session(async_engine: AsyncEngine) -> AsyncGenerator[AsyncSessio
 def postgres_required() -> object:
     """Skip el test si DATABASE_URL no apunta a Postgres real."""
     from app.core.config import get_settings
+
     settings = get_settings()
     if not settings.database_url.startswith("postgresql"):
-        pytest.skip(
-            "Test requiere PostgreSQL real (DATABASE_URL=postgresql+asyncpg://...)"
-        )
+        pytest.skip("Test requiere PostgreSQL real (DATABASE_URL=postgresql+asyncpg://...)")
     return settings

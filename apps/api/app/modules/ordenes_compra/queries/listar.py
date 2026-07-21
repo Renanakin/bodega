@@ -1,14 +1,13 @@
 """Query: listar ordenes de compra con filtros."""
+
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
+from app.db.models.ordenes_compra import OrdenCompra
+from app.modules.ordenes_compra.actions._common import OrdenCompraView, to_view
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.db.models.ordenes_compra import OrdenCompra
-
-from app.modules.ordenes_compra.actions._common import OrdenCompraView, to_view
 
 
 async def list_ordenes(

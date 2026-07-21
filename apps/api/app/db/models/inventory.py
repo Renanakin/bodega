@@ -2,6 +2,7 @@
 
 NOTA: NO usar `from __future__ import annotations` ni `relationship()` aquí.
 """
+
 import enum
 import uuid
 from decimal import Decimal
@@ -37,9 +38,7 @@ class StockLevel(Base):
         Index("ix_stock_levels_warehouse_product", "warehouse_id", "product_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     warehouse_id: Mapped[uuid.UUID] = mapped_column(
         GUID(),
         ForeignKey("warehouses.id", ondelete="CASCADE"),
@@ -50,9 +49,7 @@ class StockLevel(Base):
         ForeignKey("products.id", ondelete="CASCADE"),
         nullable=False,
     )
-    quantity: Mapped[Decimal] = mapped_column(
-        Numeric(14, 2), nullable=False, default=Decimal("0")
-    )
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
     min_quantity: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0")
     )
@@ -77,9 +74,7 @@ class InventoryMovement(Base):
         Index("ix_inventory_movements_product_created_at", "product_id", "created_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     warehouse_id: Mapped[uuid.UUID] = mapped_column(
         GUID(),
         ForeignKey("warehouses.id", ondelete="RESTRICT"),
@@ -91,7 +86,13 @@ class InventoryMovement(Base):
         nullable=False,
     )
     movement_type: Mapped[MovementType] = mapped_column(
-        Enum(MovementType, name="movement_type_enum", native_enum=False, length=30, values_callable=lambda x: [e.value for e in x]),
+        Enum(
+            MovementType,
+            name="movement_type_enum",
+            native_enum=False,
+            length=30,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)

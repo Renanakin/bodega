@@ -2,6 +2,7 @@
 
 Separados del router para mantener clean architecture.
 """
+
 from __future__ import annotations
 
 import uuid

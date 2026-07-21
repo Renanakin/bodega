@@ -14,17 +14,15 @@ SQLAlchemy 2.0.36. En Postgres, TODOS los tests pasan. En SQLite,
 los tests que dependen de FK/CHECK enforcement se skippean con
 razón clara y se ejecutan cuando DATABASE_URL es Postgres.
 """
+
 from __future__ import annotations
 
 import uuid
 from decimal import Decimal
 
 import pytest
-from sqlalchemy.exc import IntegrityError
-
-from app.core.config import get_settings
 from app.db.models.categorias import Category
-from app.db.models.inventory import StockLevel, MovementType, InventoryMovement
+from app.db.models.inventory import InventoryMovement, MovementType, StockLevel
 from app.db.models.ordenes_compra import (
     DetalleOrdenCompra,
     EmailOutbox,
@@ -40,13 +38,14 @@ from app.db.models.solicitudes import (
 from app.db.models.supervisores import Supervisor
 from app.db.models.ubicaciones import UbicacionEstanteria
 from app.db.models.warehouses import Warehouse
-
+from sqlalchemy.exc import IntegrityError
 
 pytestmark = pytest.mark.integration
 
 
 def _is_postgres() -> bool:
     import os
+
     return os.getenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:").startswith("postgresql")
 
 
@@ -59,7 +58,9 @@ class TestForeignKeys:
         reason="FK enforcement en SQLite async es limitado; test válido en Postgres",
     )
     async def test_product_with_invalid_category_fails(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         product = Product(
             id=uuid.uuid4(),
@@ -79,7 +80,9 @@ class TestForeignKeys:
         reason="FK enforcement en SQLite async es limitado; test válido en Postgres",
     )
     async def test_warehouse_parent_must_exist(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(
             id=uuid.uuid4(),
@@ -99,7 +102,9 @@ class TestUniqueConstraints:
 
     @pytest.mark.asyncio
     async def test_unique_product_sku(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         cat = Category(id=uuid.uuid4(), nombre="Cat1")
         p1 = Product(id=uuid.uuid4(), sku="DUP-1", name="P1", unit="u", id_categoria=cat.id)
@@ -113,7 +118,9 @@ class TestUniqueConstraints:
 
     @pytest.mark.asyncio
     async def test_unique_supervisor_email(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         s1 = Supervisor(id=uuid.uuid4(), nombre="S1", email="dup@bodega.example")
         s2 = Supervisor(id=uuid.uuid4(), nombre="S2", email="dup@bodega.example")
@@ -126,7 +133,9 @@ class TestUniqueConstraints:
 
     @pytest.mark.asyncio
     async def test_unique_codigo_barras(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         p1 = Product(id=uuid.uuid4(), sku="P1", name="P1", unit="u", codigo_barras="12345")
         p2 = Product(id=uuid.uuid4(), sku="P2", name="P2", unit="u", codigo_barras="12345")
@@ -140,7 +149,9 @@ class TestCheckConstraints:
 
     @pytest.mark.asyncio
     async def test_stock_level_quantity_non_negative(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(id=uuid.uuid4(), code="W1", name="W1", warehouse_type="principal")
         p = Product(id=uuid.uuid4(), sku="P1", name="P1", unit="u")
@@ -160,7 +171,9 @@ class TestCheckConstraints:
 
     @pytest.mark.asyncio
     async def test_movement_quantity_positive(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(id=uuid.uuid4(), code="W1", name="W1", warehouse_type="principal")
         p = Product(id=uuid.uuid4(), sku="P1", name="P1", unit="u")
@@ -180,7 +193,9 @@ class TestCheckConstraints:
 
     @pytest.mark.asyncio
     async def test_ubicacion_altura_positive(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(id=uuid.uuid4(), code="W1", name="W1", warehouse_type="principal")
         async_session.add(wh)
@@ -199,7 +214,9 @@ class TestCheckConstraints:
 
     @pytest.mark.asyncio
     async def test_orden_compra_total_non_negative(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(id=uuid.uuid4(), code="W1", name="W1", warehouse_type="principal")
         sup = Supervisor(id=uuid.uuid4(), nombre="S", email="s@bodega.example")
@@ -224,14 +241,12 @@ class TestCompositePKs:
 
     @pytest.mark.asyncio
     async def test_detalle_solicitud_unique_pair(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
-        wh_origen = Warehouse(
-            id=uuid.uuid4(), code="O", name="O", warehouse_type="auxiliar"
-        )
-        wh_destino = Warehouse(
-            id=uuid.uuid4(), code="D", name="D", warehouse_type="principal"
-        )
+        wh_origen = Warehouse(id=uuid.uuid4(), code="O", name="O", warehouse_type="auxiliar")
+        wh_destino = Warehouse(id=uuid.uuid4(), code="D", name="D", warehouse_type="principal")
         p = Product(id=uuid.uuid4(), sku="P1", name="P1", unit="u")
         sol = SolicitudRecarga(
             id=uuid.uuid4(),
@@ -260,7 +275,9 @@ class TestCompositePKs:
 
     @pytest.mark.asyncio
     async def test_detalle_orden_unique_pair(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         wh = Warehouse(id=uuid.uuid4(), code="W1", name="W1", warehouse_type="principal")
         sup = Supervisor(id=uuid.uuid4(), nombre="S", email="s@bodega.example")
@@ -297,7 +314,9 @@ class TestDetalleNeumatico:
 
     @pytest.mark.asyncio
     async def test_create_detalle_neumatico(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
         p = Product(id=uuid.uuid4(), sku="NEU-001", name="Neumatico 205/55R16", unit="unidad")
         async_session.add(p)
@@ -324,9 +343,10 @@ class TestEmailOutbox:
 
     @pytest.mark.asyncio
     async def test_create_pending_email(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
-        from app.db.models.ordenes_compra import EmailOutbox
         email = EmailOutbox(
             id=uuid.uuid4(),
             to_email="sup@bodega.example",
@@ -347,9 +367,10 @@ class TestEmailOutbox:
         reason="CHECK constraint en SQLite async es limitado; test válido en Postgres",
     )
     async def test_email_invalid_status_rejected(
-        self, async_engine, async_session  # type: ignore[no-untyped-def]
+        self,
+        async_engine,
+        async_session,  # type: ignore[no-untyped-def]
     ) -> None:
-        from app.db.models.ordenes_compra import EmailOutbox
         email = EmailOutbox(
             id=uuid.uuid4(),
             to_email="x@bodega.example",

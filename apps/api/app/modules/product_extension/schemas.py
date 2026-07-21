@@ -4,6 +4,7 @@ Schemas Pydantic para el sub-recurso ``detalles_neumaticos`` (Fase 2).
 Una relación 1:1 opt-in con ``products``. Un producto tiene 0 o 1
 ``DetalleNeumatico``; si no existe, el GET devuelve 404.
 """
+
 from __future__ import annotations
 
 from uuid import UUID

@@ -5,6 +5,7 @@ Garantiza que el producto asociado existe antes de crear/modificar el
 detalle (FK ya valida en el INSERT, pero verificamos antes para devolver
 404 limpio en vez de 500 por IntegrityError).
 """
+
 from __future__ import annotations
 
 import uuid

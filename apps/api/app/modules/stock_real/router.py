@@ -7,6 +7,7 @@ Endpoints (prefijo ``/inventario/real``):
 - ``GET  /api/v1/inventario/real/distribucion``     — grilla multibodega por SKU
 - ``GET  /api/v1/inventario/real/bajo-minimo``      — alertas bajo mínimo
 """
+
 from __future__ import annotations
 
 from uuid import UUID

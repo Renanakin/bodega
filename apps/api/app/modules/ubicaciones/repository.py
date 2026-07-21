@@ -4,6 +4,7 @@ Repository de ubicaciones físicas (Fase 2).
 Operaciones CRUD sobre ``ubicaciones_estanteria`` usando el
 ``SQLiteDatabase`` legacy (Fase 0/1 compat).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -124,7 +125,7 @@ class UbicacionRepository:
             return
         params.append(str(ubicacion_id))
         self._db.execute(
-            f"UPDATE ubicaciones_estanteria SET {', '.join(sets)} WHERE id = ?",
+            f"UPDATE ubicaciones_estanteria SET {', '.join(sets)} WHERE id = ?",  # noqa: S608
             tuple(params),
         )
 

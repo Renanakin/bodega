@@ -14,16 +14,14 @@ Reglas:
 - R4: solo infrastructura SMTP, sin logica de negocio.
 - R8: log estructurado por cada envio (smtp.sent, smtp.error).
 """
+
 from __future__ import annotations
 
-import asyncio
 from email.message import EmailMessage
 
 import aiosmtplib
-
 from app.core.config import get_settings
 from app.core.logging import get_logger
-
 
 log = get_logger(__name__)
 
@@ -74,15 +72,11 @@ async def send_email(
     msg["From"] = from_email or settings.smtp_from
     msg["To"] = to_email
     # Fallback plain-text para clientes que no soportan HTML.
-    msg.set_content(
-        "Por favor visualiza este email en un cliente que soporte HTML."
-    )
+    msg.set_content("Por favor visualiza este email en un cliente que soporte HTML.")
     msg.add_alternative(body_html, subtype="html")
 
     username = settings.smtp_username or None
-    password = (
-        settings.smtp_password.get_secret_value() if settings.smtp_password else None
-    )
+    password = settings.smtp_password.get_secret_value() if settings.smtp_password else None
 
     try:
         await aiosmtplib.send(
@@ -110,13 +104,11 @@ async def send_email(
             code=e.code,
             message=str(e),
         )
-        raise SmtpPermanentError(
-            f"Destinatario rechazado por SMTP: {to_email} ({e})"
-        ) from e
+        raise SmtpPermanentError(f"Destinatario rechazado por SMTP: {to_email} ({e})") from e
     except aiosmtplib.SMTPSenderRefused as e:
         log.error("smtp.sender_refused", code=e.code, message=str(e))
         raise SmtpError(f"Remitente rechazado por SMTP: {e}") from e
-    except (aiosmtplib.SMTPException, asyncio.TimeoutError, OSError) as e:
+    except (TimeoutError, aiosmtplib.SMTPException, OSError) as e:
         log.error(
             "smtp.error",
             to=to_email,

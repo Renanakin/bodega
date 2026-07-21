@@ -2,6 +2,7 @@
 
 Extendido en Fase 4 con codigo_barras, id_categoria, precio_costo, precio_venta.
 """
+
 import uuid
 from decimal import Decimal
 
@@ -15,9 +16,7 @@ class Product(Base):
 
     __tablename__ = "products"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     sku: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     codigo_barras: Mapped[str] = mapped_column(String(100), nullable=True, unique=True)
     name: Mapped[str] = mapped_column(String(150), nullable=False)

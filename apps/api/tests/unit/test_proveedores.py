@@ -8,6 +8,7 @@ Cubre:
 - Actualizacion parcial (PATCH).
 - No-admin no puede crear (403).
 """
+
 from __future__ import annotations
 
 import os
@@ -17,11 +18,14 @@ from uuid import uuid4
 # Configurar el AsyncEngine antes de importar la app.
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("ENVIRONMENT", "development")
-os.environ.setdefault(
-    "JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX"
-)
+os.environ.setdefault("JWT_SECRET", "test-secret-must-be-at-least-32-chars-long-XXXX")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
+from app.core.config import reset_settings_cache  # noqa: E402
+from app.db import models  # noqa: E402, F401  -- registra modelos en Base.metadata
+from app.db.base import Base  # noqa: E402
+from app.main import create_app  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import event  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
@@ -30,13 +34,6 @@ from sqlalchemy.ext.asyncio import (  # noqa: E402
     create_async_engine,
 )
 from sqlalchemy.pool import StaticPool  # noqa: E402
-
-from app.core.config import reset_settings_cache  # noqa: E402
-from app.db import models  # noqa: E402, F401  -- registra modelos en Base.metadata
-from app.db.base import Base  # noqa: E402
-from app.main import create_app  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
 
 reset_settings_cache()
 
@@ -61,8 +58,7 @@ def _create_test_engine() -> AsyncEngine:
 class ProveedoresTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         from app.core.security import hash_password
-        from app.db.session import create_database, utcnow
-        from app.db.session import reset_engine_cache
+        from app.db.session import create_database, reset_engine_cache, utcnow
 
         reset_engine_cache()
         self.engine = _create_test_engine()
@@ -72,6 +68,7 @@ class ProveedoresTestCase(unittest.IsolatedAsyncioTestCase):
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
         import app.db.session as session_module
+
         session_module._engine = self.engine
         session_module._session_factory = self.session_factory
 
@@ -85,6 +82,7 @@ class ProveedoresTestCase(unittest.IsolatedAsyncioTestCase):
                 except Exception:
                     await s.rollback()
                     raise
+
         self.app.dependency_overrides[get_session] = _override_get_session
 
         # Crear usuarios en BD legacy para auth.
@@ -123,6 +121,7 @@ class ProveedoresTestCase(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
         self.legacy_db.close()
         from app.db.session import reset_engine_cache
+
         reset_engine_cache()
 
     # ----------------------------------------------------------------- tests
@@ -130,7 +129,11 @@ class ProveedoresTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_crear_proveedor_ok(self) -> None:
         resp = self.client.post(
             "/api/v1/proveedores",
-            json={"nombre": "Repuestos SA", "rut": "76.123.456-7", "email": "ventas@repuestos.example"},
+            json={
+                "nombre": "Repuestos SA",
+                "rut": "76.123.456-7",
+                "email": "ventas@repuestos.example",
+            },
             headers=self.admin_headers,
         )
         self.assertEqual(resp.status_code, 201, resp.text)
@@ -185,24 +188,18 @@ class ProveedoresTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r.status_code, 200, r.text)
 
         # Listar todos -> 2.
-        all_resp = self.client.get(
-            "/api/v1/proveedores", headers=self.admin_headers
-        )
+        all_resp = self.client.get("/api/v1/proveedores", headers=self.admin_headers)
         self.assertEqual(all_resp.status_code, 200)
         self.assertEqual(len(all_resp.json()), 2)
 
         # Listar solo activos -> 1 (A).
-        activos = self.client.get(
-            "/api/v1/proveedores?activo=true", headers=self.admin_headers
-        )
+        activos = self.client.get("/api/v1/proveedores?activo=true", headers=self.admin_headers)
         self.assertEqual(activos.status_code, 200)
         self.assertEqual(len(activos.json()), 1)
         self.assertEqual(activos.json()[0]["id"], sid_a)
 
         # Listar solo inactivos -> 1 (B).
-        inactivos = self.client.get(
-            "/api/v1/proveedores?activo=false", headers=self.admin_headers
-        )
+        inactivos = self.client.get("/api/v1/proveedores?activo=false", headers=self.admin_headers)
         self.assertEqual(inactivos.status_code, 200)
         self.assertEqual(len(inactivos.json()), 1)
         self.assertEqual(inactivos.json()[0]["id"], sid_b)

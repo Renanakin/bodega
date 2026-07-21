@@ -10,6 +10,7 @@ Cubre:
 - Bodega inexistente → 404.
 - Ubicación inexistente → 404.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -104,9 +105,7 @@ class UbicacionesTestCase(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(second.status_code, 409)
-        self.assertEqual(
-            second.json()["detail"]["code"], "duplicate_ubicacion"
-        )
+        self.assertEqual(second.json()["detail"]["code"], "duplicate_ubicacion")
 
     def test_same_slot_different_bodega_is_ok(self) -> None:
         other_bodega = _create_warehouse(self.client, self.headers)
@@ -141,13 +140,9 @@ class UbicacionesTestCase(unittest.TestCase):
         self.assertEqual(post_resp.status_code, 404)
 
     def test_ubicacion_not_found(self) -> None:
-        resp = self.client.get(
-            f"/api/v1/ubicaciones/{uuid4()}", headers=self.headers
-        )
+        resp = self.client.get(f"/api/v1/ubicaciones/{uuid4()}", headers=self.headers)
         self.assertEqual(resp.status_code, 404)
-        self.assertEqual(
-            resp.json()["detail"]["code"], "ubicacion_not_found"
-        )
+        self.assertEqual(resp.json()["detail"]["code"], "ubicacion_not_found")
 
     def test_patch_activar_desactivar(self) -> None:
         ub_id = self.client.post(
@@ -182,15 +177,11 @@ class UbicacionesTestCase(unittest.TestCase):
             headers=self.headers,
         ).json()["id"]
 
-        delete_resp = self.client.delete(
-            f"/api/v1/ubicaciones/{ub_id}", headers=self.headers
-        )
+        delete_resp = self.client.delete(f"/api/v1/ubicaciones/{ub_id}", headers=self.headers)
         self.assertEqual(delete_resp.status_code, 204)
 
         # Detalle sigue accesible pero is_active=False
-        detail = self.client.get(
-            f"/api/v1/ubicaciones/{ub_id}", headers=self.headers
-        ).json()
+        detail = self.client.get(f"/api/v1/ubicaciones/{ub_id}", headers=self.headers).json()
         self.assertFalse(detail["is_active"])
 
         # Listado sigue mostrando la fila (no se borra)

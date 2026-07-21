@@ -11,12 +11,13 @@ Endpoints:
 El PDF del reporte ejecutivo se genera en el cliente con ``jsPDF`` (~50KB),
 evitando dependencia server-side (decision documentada en fase-8).
 """
+
 from __future__ import annotations
 
 from app.db.session import get_session
 from app.modules.auth.router import get_current_user
 from app.modules.reports.schemas import EjecutivoSnapshot
-from app.modules.reports.service import ReportService, TOP_N_DEFAULT
+from app.modules.reports.service import TOP_N_DEFAULT, ReportService
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 

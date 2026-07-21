@@ -25,6 +25,7 @@ API publica (estable desde Fase 0):
     - ``bind_request_context(request_id, user_id)`` - setea contexto.
     - ``clear_request_context()`` - limpia contexto.
 """
+
 from __future__ import annotations
 
 import logging
@@ -33,10 +34,8 @@ from contextvars import ContextVar
 from typing import Any
 
 import structlog
-from structlog.types import EventDict, Processor
-
 from app.core.config import get_settings
-
+from structlog.types import EventDict, Processor
 
 # --- Contexto (R8) -----------------------------------------------------------
 
@@ -44,9 +43,7 @@ from app.core.config import get_settings
 # ``bind_request_context`` / ``clear_request_context`` sigan funcionando en
 # modulos previos (Fase 0-8). Tambien se bindea a ``structlog.contextvars``
 # para que el processor ``merge_contextvars`` los inyecte automaticamente.
-_correlation_id_ctx: ContextVar[str | None] = ContextVar(
-    "correlation_id", default=None
-)
+_correlation_id_ctx: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 _user_id_ctx: ContextVar[str | None] = ContextVar("user_id", default=None)
 
 # Flag de idempotencia (ver configure_logging).
@@ -54,7 +51,9 @@ _logging_configured: bool = False
 
 
 def _add_context_vars(
-    _: Any, method_name: str, event_dict: EventDict  # noqa: ARG001
+    _: Any,
+    _method_name: str,
+    event_dict: EventDict,  # noqa: ARG001
 ) -> EventDict:
     """Inyecta ``correlation_id`` y ``user_id`` desde el ContextVar propio.
 
@@ -196,9 +195,7 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)
 
 
-def bind_request_context(
-    request_id: str, user_id: str | None = None
-) -> None:
+def bind_request_context(request_id: str, user_id: str | None = None) -> None:
     """Vincula ``request_id`` (alias de correlation_id) y ``user_id`` al contexto.
 
     Setea tanto el ContextVar propio (``_correlation_id_ctx`` /
@@ -225,9 +222,7 @@ def clear_request_context() -> None:
     """
     _correlation_id_ctx.set(None)
     _user_id_ctx.set(None)
-    structlog.contextvars.unbind_contextvars(
-        "correlation_id", "request_id", "user_id"
-    )
+    structlog.contextvars.unbind_contextvars("correlation_id", "request_id", "user_id")
 
 
 def get_request_id() -> str | None:

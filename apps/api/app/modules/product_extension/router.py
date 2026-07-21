@@ -6,6 +6,7 @@ Endpoints (prefijo ``/products``):
 - ``PUT    /api/v1/products/{product_id}/neumatico``  — upsert
 - ``DELETE /api/v1/products/{product_id}/neumatico``  — 404 si no existe
 """
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -58,7 +59,9 @@ def upsert_detalle_neumatico(
 
 
 @router.delete(
-    "/{product_id}/neumatico", status_code=status.HTTP_204_NO_CONTENT
+    "/{product_id}/neumatico",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,  # explicito: FastAPI >= 0.116 confunde -> None con NoneType
 )
 def delete_detalle_neumatico(
     product_id: UUID,

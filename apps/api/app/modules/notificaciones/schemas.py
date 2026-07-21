@@ -1,9 +1,9 @@
 """Schemas Pydantic para notificaciones in-app (Fase 8)."""
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,8 +20,7 @@ class NotificacionResponse(BaseModel):
     mensaje: str | None
     payload: str | None = Field(
         default=None,
-        description="JSON serializado (string) con contexto: id de la OC, "
-        "id de la solicitud, etc.",
+        description="JSON serializado (string) con contexto: id de la OC, id de la solicitud, etc.",
     )
     leida: bool
     created_at: datetime

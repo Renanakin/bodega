@@ -3,6 +3,7 @@
 Logica de negocio. La capa HTTP (router) solo traduce pydantic <-> dict
 y mapea errores de dominio a status codes via `domain_error_handler`.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -54,9 +55,7 @@ class SupervisorService:
         email_norm = data["email"].lower().strip()
 
         existing = (
-            await self._session.execute(
-                select(Supervisor).where(Supervisor.email == email_norm)
-            )
+            await self._session.execute(select(Supervisor).where(Supervisor.email == email_norm))
         ).scalar_one_or_none()
         if existing is not None:
             raise DuplicateSupervisorEmailError(email_norm)
@@ -80,9 +79,7 @@ class SupervisorService:
         log.info("supervisor.created", supervisor_id=str(s.id), email=email_norm)
         return s
 
-    async def update_supervisor(
-        self, supervisor_id: uuid.UUID, data: dict[str, Any]
-    ) -> Supervisor:
+    async def update_supervisor(self, supervisor_id: uuid.UUID, data: dict[str, Any]) -> Supervisor:
         """Actualiza campos parciales (PATCH).
 
         Si se intenta desactivar (`activo=False`), se considera soft-delete.

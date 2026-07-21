@@ -1,6 +1,6 @@
 """Tests del BarcodeValidator (Fase 7)."""
-import pytest
 
+import pytest
 from app.shared.barcode import (
     BarcodeFormat,
     BarcodeValidationError,
@@ -8,7 +8,6 @@ from app.shared.barcode import (
     normalize_barcode,
     validate_barcode,
 )
-
 
 pytestmark = pytest.mark.unit
 

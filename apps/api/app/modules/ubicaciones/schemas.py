@@ -4,6 +4,7 @@ Schemas Pydantic para ubicaciones físicas (Fase 2).
 Una ubicación = (id_bodega, pasillo, estanteria, altura) con UNIQUE
 constraint y soft delete via ``is_active``.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

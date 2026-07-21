@@ -52,3 +52,5 @@ apps/api/*.sqlite3
 
 # Auditoria local de fase 0 (snapshots de secretos quemados)
 auditoria-fase0/
+# Auditoria local de fase 5 (smoke test scripts, logs)
+auditoria-fase5/

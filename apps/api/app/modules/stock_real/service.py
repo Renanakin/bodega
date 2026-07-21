@@ -9,6 +9,7 @@ Tres responsabilidades:
 4. ``bajo_minimo``: alerta de productos por debajo del mínimo en una
    bodega concreta.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -67,9 +68,7 @@ class StockRealService:
         if product_id is not None and self._products.get_by_id(product_id) is None:
             raise ProductNotFoundError(str(product_id))
 
-        rows = self._stock_real.list(
-            warehouse_id=warehouse_id, product_id=product_id
-        )
+        rows = self._stock_real.list(warehouse_id=warehouse_id, product_id=product_id)
         return [
             StockRealItem(
                 id_producto=r.id_producto,
@@ -172,9 +171,7 @@ class StockRealService:
                     total_quantity=quantity,
                     min_quantity=min_quantity,
                     estado=estado,
-                    ubicaciones=ubicaciones_por_bodega.get(
-                        str(srow["warehouse_id"]), []
-                    ),
+                    ubicaciones=ubicaciones_por_bodega.get(str(srow["warehouse_id"]), []),
                 )
             )
 
@@ -190,9 +187,7 @@ class StockRealService:
 
     # --- Bajo mínimo ---
 
-    def bajo_minimo(
-        self, bodega_id: uuid.UUID | None = None
-    ) -> list[BajoMinimoItem]:
+    def bajo_minimo(self, bodega_id: uuid.UUID | None = None) -> list[BajoMinimoItem]:
         if bodega_id is not None and self._warehouses.get_by_id(bodega_id) is None:
             raise WarehouseNotFoundError(str(bodega_id))
 
@@ -203,18 +198,20 @@ class StockRealService:
             params.append(str(bodega_id))
         where = " AND ".join(clauses)
 
-        rows = self._db.query_all(
-            f"""
-            SELECT
-                sl.warehouse_id, sl.product_id, sl.quantity, sl.min_quantity, sl.updated_at,
-                w.code, w.name,
-                p.sku, p.name AS product_name
-            FROM stock_levels sl
-            JOIN warehouses w ON w.id = sl.warehouse_id
-            JOIN products p ON p.id = sl.product_id
-            WHERE {where}
-            ORDER BY (sl.quantity - sl.min_quantity) ASC, w.code, p.sku
-            """,
+        rows = self._db.query_all(  # noqa: S608
+            (
+                f"""
+                SELECT
+                    sl.warehouse_id, sl.product_id, sl.quantity, sl.min_quantity, sl.updated_at,
+                    w.code, w.name,
+                    p.sku, p.name AS product_name
+                FROM stock_levels sl
+                JOIN warehouses w ON w.id = sl.warehouse_id
+                JOIN products p ON p.id = sl.product_id
+                WHERE {where}
+                ORDER BY (sl.quantity - sl.min_quantity) ASC, w.code, p.sku
+                """
+            ),
             tuple(params),
         )
         return [

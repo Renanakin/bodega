@@ -12,6 +12,7 @@ Además:
 - Delta calculado correctamente por tipo.
 - BEGIN IMMEDIATE emite log warning (sqlite).
 """
+
 from __future__ import annotations
 
 import unittest
@@ -21,8 +22,6 @@ from decimal import Decimal
 from app.db.session import SQLiteDatabase, create_database
 from app.modules.inventory.movement_engine import MovementEngine
 from app.modules.inventory.schemas import MovementType
-from app.modules.products.repository import ProductRepository
-from app.modules.warehouses.repository import WarehouseRepository
 
 
 def _setup_warehouse_and_product(db: SQLiteDatabase) -> tuple[uuid.UUID, uuid.UUID]:
@@ -33,16 +32,28 @@ def _setup_warehouse_and_product(db: SQLiteDatabase) -> tuple[uuid.UUID, uuid.UU
         INSERT INTO warehouses (id, code, name, warehouse_type, is_active, created_at, updated_at)
         VALUES (?, ?, ?, ?, 1, ?, ?)
         """,
-        (str(wh_id), f"W-{wh_id.hex[:6].upper()}", "Test WH", "principal",
-         "2024-01-01T00:00:00+00:00", "2024-01-01T00:00:00+00:00"),
+        (
+            str(wh_id),
+            f"W-{wh_id.hex[:6].upper()}",
+            "Test WH",
+            "principal",
+            "2024-01-01T00:00:00+00:00",
+            "2024-01-01T00:00:00+00:00",
+        ),
     )
     db.execute(
         """
         INSERT INTO products (id, sku, name, unit, is_active, created_at, updated_at)
         VALUES (?, ?, ?, ?, 1, ?, ?)
         """,
-        (str(prod_id), f"P-{prod_id.hex[:6].upper()}", "Test Prod", "unidad",
-         "2024-01-01T00:00:00+00:00", "2024-01-01T00:00:00+00:00"),
+        (
+            str(prod_id),
+            f"P-{prod_id.hex[:6].upper()}",
+            "Test Prod",
+            "unidad",
+            "2024-01-01T00:00:00+00:00",
+            "2024-01-01T00:00:00+00:00",
+        ),
     )
     return wh_id, prod_id
 
@@ -108,10 +119,12 @@ class MovementEngineSyncTestCase(unittest.TestCase):
 
     def test_invalid_movement_type_raises_value_error(self) -> None:
         wh_id, prod_id = _setup_warehouse_and_product(self.db)
+
         # Subclass hack para forzar un movement_type con value inválido
         # sin chocar con el atributo inmutable del enum.
         class _BadType:
             value = "definitely_not_valid"
+
         with self.assertRaises(ValueError):
             self.engine.register(
                 warehouse_id=wh_id,

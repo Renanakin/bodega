@@ -8,13 +8,14 @@ Soporta:
 - Code 39 (alfanumerico + algunos simbolos)
 - QR / DataMatrix (cualquier string, sin validacion de checksum)
 """
+
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 
 
-class BarcodeFormat(str, Enum):
+class BarcodeFormat(StrEnum):
     EAN_13 = "ean_13"
     EAN_8 = "ean_8"
     CODE_128 = "code_128"
@@ -62,10 +63,7 @@ def _ean_checksum_ok(code: str) -> bool:
     # EAN-8: similar pero empieza con peso 3
     total = 0
     for i, d in enumerate(body):
-        if len(code) == 13:
-            weight = 1 if i % 2 == 0 else 3
-        else:
-            weight = 3 if i % 2 == 0 else 1
+        weight = (1 if i % 2 == 0 else 3) if len(code) == 13 else 3 if i % 2 == 0 else 1
         total += d * weight
     expected = (10 - (total % 10)) % 10
     return check_digit == expected
@@ -92,9 +90,8 @@ def validate_barcode(raw: str) -> tuple[str, BarcodeFormat]:
     elif fmt == BarcodeFormat.CODE_128:
         if len(raw.strip()) < 4:
             raise BarcodeValidationError(f"Code 128 demasiado corto: {raw}")
-    elif fmt == BarcodeFormat.CODE_39:
-        if len(cleaned) < 4:
-            raise BarcodeValidationError(f"Code 39 demasiado corto: {cleaned}")
+    elif fmt == BarcodeFormat.CODE_39 and len(cleaned) < 4:
+        raise BarcodeValidationError(f"Code 39 demasiado corto: {cleaned}")
     # QR / DataMatrix / UNKNOWN: no validamos checksum, solo formato basico
     if len(cleaned) > 100:
         raise BarcodeValidationError(f"Barcode demasiado largo: {len(cleaned)} chars")

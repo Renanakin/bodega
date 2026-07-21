@@ -85,43 +85,41 @@ def upgrade() -> None:
         ["id_bodega_principal"],
         unique=False,
     )
-    # codigo ya es UNIQUE por convencion del modelo, pero lo hacemos
-    # explicito en la migracion para que el orden este documentado.
-    op.create_index(
-        "uq_ordenes_codigo",
-        "ordenes_compra",
-        ["codigo"],
-        unique=True,
-    )
+    # NOTA: NO crear uq_ordenes_codigo aqui. La UniqueConstraint
+    # "uq_ordenes_codigo" ya fue creada en 0007_ordenes_compra.py como
+    # parte de la definicion de la tabla. Intentar crear un indice con
+    # el mismo nombre aqui produce DuplicateTableError en Postgres.
 
-    # audit_log: queries por usuario y por entidad.
+    # audit_logs: queries por usuario y por entidad. La tabla es
+    # "audit_logs" (plural) segun 0001_initial_mvp.py.
     op.create_index(
-        "ix_audit_log_user_created",
-        "audit_log",
+        "ix_audit_logs_user_created",
+        "audit_logs",
         ["user_id", "created_at"],
         unique=False,
     )
     op.create_index(
-        "ix_audit_log_entity",
-        "audit_log",
+        "ix_audit_logs_entity",
+        "audit_logs",
         ["entity_type", "entity_id"],
         unique=False,
     )
 
-    # notifications: query mas comun es "no leidas del usuario X".
-    op.create_index(
-        "ix_notifications_user_read",
-        "notificaciones",
-        ["user_id", "read_at"],
-        unique=False,
-    )
+    # NOTA: NO crear ix_notifications_user_read aqui. La tabla
+    # "notificaciones" no se crea en las migraciones (se crea via
+    # SQLAlchemy create_all() en el startup de la app). Si lo creamos
+    # aqui, falla con UndefinedTableError en Postgres sobre DB fresca.
+    # El indice ya existe a nivel modelo (ver db/models/notificaciones.py
+    # linea ~53: Index("ix_notificaciones_user_leida_created", ...)).
 
 
 def downgrade() -> None:
-    op.drop_index("ix_notifications_user_read", table_name="notificaciones")
-    op.drop_index("ix_audit_log_entity", table_name="audit_log")
-    op.drop_index("ix_audit_log_user_created", table_name="audit_log")
-    op.drop_index("uq_ordenes_codigo", table_name="ordenes_compra")
+    # NOTA: ix_notifications_user_read no se dropea porque no se creo en
+    # esta migracion (ver comentario en upgrade).
+    op.drop_index("ix_audit_logs_entity", table_name="audit_logs")
+    op.drop_index("ix_audit_logs_user_created", table_name="audit_logs")
+    # NOTA: uq_ordenes_codigo no se dropea porque no se creo en esta
+    # migracion (ver comentario en upgrade).
     op.drop_index("ix_ordenes_bodega_principal", table_name="ordenes_compra")
     op.drop_index("ix_ordenes_supervisor", table_name="ordenes_compra")
     op.drop_index("ix_detalle_solicitud_producto", table_name="detalle_solicitud_recarga")

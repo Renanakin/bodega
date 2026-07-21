@@ -1,23 +1,21 @@
 """Query: distribucion multibodega de un SKU."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.modules.inventory.multibodega import StockMultibodegaService
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.solicitudes.schemas import (
-        DistribucionBodegaItem,
         DistribucionMultibodegaResponse,
     )
 
 
 async def get_distribucion_multibodega(
     session: AsyncSession, sku: str
-) -> "DistribucionMultibodegaResponse | None":
+) -> DistribucionMultibodegaResponse | None:
     """Vista de distribucion de un SKU por bodega (spec 4.1).
 
     Delega en ``StockMultibodegaService`` para mantener una sola

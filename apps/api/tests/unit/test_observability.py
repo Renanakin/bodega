@@ -8,6 +8,7 @@ Cubre:
 - ``CorrelationIdMiddleware`` setea X-Correlation-ID en el response.
 - ``CorrelationIdMiddleware`` acepta X-Correlation-ID entrante (idempotente).
 """
+
 from __future__ import annotations
 
 import json
@@ -16,18 +17,15 @@ from collections.abc import Iterator
 
 import pytest
 import structlog
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from app.core.logging import (
-    _logging_configured,
     bind_request_context,
     clear_request_context,
     configure_logging,
     get_logger,
 )
 from app.core.middleware import CorrelationIdMiddleware
-
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 pytestmark = pytest.mark.unit
 
@@ -165,9 +163,7 @@ class TestCorrelationId:
         assert len(records) >= 1
         msg = records[-1].getMessage()
         # correlation_id (o su alias request_id) debe estar en el output
-        assert "abc-123-def-456" in msg, (
-            f"correlation_id no aparece en log: {msg!r}"
-        )
+        assert "abc-123-def-456" in msg, f"correlation_id no aparece en log: {msg!r}"
 
     def test_correlation_id_se_limpia_con_clear(self, env_development: None) -> None:
         """``clear_request_context()`` remueve correlation_id y user_id del contexto."""
@@ -227,9 +223,7 @@ class TestCorrelationIdMiddleware:
         # El mismo correlation_id debe volver en el response
         assert response.headers["X-Correlation-ID"] == sent_id
 
-    def test_correlation_id_se_loguea_en_errores(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_correlation_id_se_loguea_en_errores(self, caplog: pytest.LogCaptureFixture) -> None:
         """Cuando un handler lanza excepcion, se loguea ``request.failed``
         con el correlation_id (para trazabilidad del error)."""
         app = self._build_app()
@@ -242,11 +236,10 @@ class TestCorrelationIdMiddleware:
         # enviamos. Esto es lo que permite a ops rastrear el error
         # en el log de produccion.
         failed_logs = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.name == "app.core.middleware" and "request.failed" in r.getMessage()
         ]
         assert len(failed_logs) >= 1
         msg = failed_logs[-1].getMessage()
-        assert "err-trace-id-9999" in msg, (
-            f"correlation_id no aparece en log de error: {msg!r}"
-        )
+        assert "err-trace-id-9999" in msg, f"correlation_id no aparece en log de error: {msg!r}"
