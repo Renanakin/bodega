@@ -39,7 +39,7 @@ async def get_distribucion_multibodega(
             total_quantity=b.total_quantity,
             min_quantity=b.min_quantity,
             max_quantity=b.max_quantity,
-            estado=b.estado,  # type: ignore[arg-type]
+            estado=b.estado,
             ubicacion_principal=None,  # F5+: completar con ubicaciones
         )
         for b in dist.bodegas

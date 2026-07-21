@@ -54,13 +54,50 @@ from app.db.records import (  # noqa: F401
     UserRecord,
     WarehouseRecord,
 )
-from app.db.sqlite_legacy import (  # noqa: F401  # noqa: F401
+from app.db.sqlite_legacy import (  # noqa: F401
     SQLiteDatabase,
     _extract_sqlite_path_from_url,
     create_database,
     get_database,
     utcnow,
 )
+
+# ``__all__`` explicito para que mypy acepte los re-exports en otros modulos
+# (sin esto, errores ``Module "app.db.session" does not explicitly export
+# attribute "X"`` llenan el log de mypy).
+__all__ = [
+    # Async (engine + session)
+    "Base",
+    "AsyncEngine",
+    "AsyncSession",
+    "CursorResult",
+    "async_sessionmaker",
+    "create_async_engine",
+    "detect_backend",
+    "get_engine",
+    "get_session",
+    "get_session_factory",
+    "init_async_schema",
+    "ping_database",
+    "reset_engine_cache",
+    "reset_settings_cache",
+    "text",
+    # Re-exports (records)
+    "AuditLogRecord",
+    "InventoryMovementRecord",
+    "ProductRecord",
+    "SessionRecord",
+    "StockLevelRecord",
+    "TransferRecord",
+    "UserRecord",
+    "WarehouseRecord",
+    # Re-exports (sqlite_legacy)
+    "SQLiteDatabase",
+    "_extract_sqlite_path_from_url",
+    "create_database",
+    "get_database",
+    "utcnow",
+]
 from sqlalchemy import text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import (
@@ -157,7 +194,32 @@ async def ping_database() -> bool:
 
 
 def reset_engine_cache() -> None:
-    """Util para tests; cierra el engine y resetea el singleton."""
+    """Resetea el singleton del engine async.
+
+    API PUBLICA para tests y migraciones de entorno en runtime.
+
+    Cuando se llama:
+    - ``_engine`` y ``_session_factory`` vuelven a ``None``.
+    - El siguiente ``get_engine()`` o ``get_session_factory()`` reconstruye
+      el engine desde cero, leyendo el ``DATABASE_URL`` actual.
+
+    Usos comunes:
+    - Tests que cambian ``DATABASE_URL`` entre tests (ej. SQLite -> Postgres).
+    - Migraciones de BD en runtime (cambiar la URL sin reiniciar el server).
+    - Limpieza del pool asyncpg cuando se cierra un event loop.
+
+    IMPORTANTE: NO cierra el engine anterior (eso lo maneja ``await
+    engine.dispose()`` o el ``lifespan`` shutdown de FastAPI). Esta
+    funcion solo invalida el cache.
+
+    Ejemplo:
+        # Reset + reconectar a otra BD
+        from app.db.session import reset_engine_cache, get_engine
+        import os
+        os.environ["DATABASE_URL"] = "postgresql+asyncpg://..."
+        reset_engine_cache()
+        engine = get_engine()  # recreado con la nueva URL
+    """
     global _engine, _session_factory
     _engine = None
     _session_factory = None

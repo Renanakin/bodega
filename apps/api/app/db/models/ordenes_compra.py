@@ -100,6 +100,10 @@ class EmailOutbox(Base):
     __tablename__ = "email_outbox"
     __table_args__ = (
         CheckConstraint("attempts >= 0", name="attempts_non_negative"),
+        CheckConstraint(
+            "status IN ('pending', 'sent', 'failed', 'dead')",
+            name="email_outbox_status_valid",
+        ),
         Index("ix_email_outbox_status", "status", "created_at"),
     )
 

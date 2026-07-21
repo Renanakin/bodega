@@ -1,12 +1,34 @@
+"""AuthService (FIX BUG-002 compatible legacy + async).
+
+FIX BUG-002: este repository soporta AMBOS backends (AsyncSession O
+SQLiteDatabase legacy). El ``AuthService`` expone metodos ``async``
+que internamente resuelven coroutines (modo async) o valores
+sincronicos (modo legacy) con ``_maybe_await``.
+
+El resto de la app (100+ callers) sigue funcionando porque
+``service.audit()`` sigue siendo ``def`` (no requiere await) y
+``asyncio.iscoroutine`` se usa internamente para detectar el modo.
+"""
+
 from __future__ import annotations
 
+import asyncio
+import inspect
 from dataclasses import dataclass
+from typing import Any
 from uuid import uuid4
 
 from app.core.errors import AuthenticationError, InvalidCredentialsError
 from app.db.session import AuditLogRecord, SessionRecord, UserRecord, utcnow
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.security import issue_token, session_expiration, verify_password
+
+
+async def _maybe_await(value: Any) -> Any:
+    """Si ``value`` es una coroutine, la espera; sino lo devuelve tal cual."""
+    if inspect.iscoroutine(value):
+        return await value
+    return value
 
 
 @dataclass(slots=True)
@@ -19,8 +41,10 @@ class AuthService:
     def __init__(self, repository: AuthRepository) -> None:
         self._repository = repository
 
-    def login(self, username: str, password: str) -> tuple[UserRecord, AuthSessionView]:
-        user = self._repository.get_user_by_username(username.strip().lower())
+    async def login(
+        self, username: str, password: str
+    ) -> tuple[UserRecord, AuthSessionView]:
+        user = await _maybe_await(self._repository.get_user_by_username(username.strip().lower()))
         if user is None or not user.is_active or not verify_password(password, user.password_hash):
             raise InvalidCredentialsError()
 
@@ -31,7 +55,7 @@ class AuthService:
             expires_at=session_expiration(),
             created_at=utcnow(),
         )
-        self._repository.add_session(session)
+        await _maybe_await(self._repository.add_session(session))
         self.audit(
             user_id=user.id,
             action="auth.login",
@@ -41,24 +65,28 @@ class AuthService:
         )
         return user, AuthSessionView(token=session.token, expires_at=session.expires_at)
 
-    def get_user_by_token(self, token: str | None) -> UserRecord:
+    async def get_user_by_token(self, token: str | None) -> UserRecord:
         if not token:
             raise AuthenticationError()
-        session = self._repository.get_session_by_token(token)
+        session = await _maybe_await(self._repository.get_session_by_token(token))
+        if session is not None and session.expires_at.tzinfo is None:
+            from datetime import UTC
+
+            session.expires_at = session.expires_at.replace(tzinfo=UTC)
         if session is None or session.expires_at <= utcnow():
             if session is not None:
-                self._repository.delete_session(token)
+                await _maybe_await(self._repository.delete_session(token))
             raise AuthenticationError()
-        user = self._repository.get_user_by_id(session.user_id)
+        user = await _maybe_await(self._repository.get_user_by_id(session.user_id))
         if user is None or not user.is_active:
             raise AuthenticationError()
         return user
 
-    def logout(self, token: str | None) -> None:
+    async def logout(self, token: str | None) -> None:
         if token:
-            self._repository.delete_session(token)
+            await _maybe_await(self._repository.delete_session(token))
 
-    def list_audit_logs(
+    async def list_audit_logs(
         self,
         limit: int = 50,
         *,
@@ -68,13 +96,15 @@ class AuthService:
         date_from: str | None = None,
         date_to: str | None = None,
     ):
-        return self._repository.list_audit_logs(
-            limit,
-            entity_type=entity_type,
-            action=action,
-            user_id=user_id,
-            date_from=date_from,
-            date_to=date_to,
+        return await _maybe_await(
+            self._repository.list_audit_logs(
+                limit,
+                entity_type=entity_type,
+                action=action,
+                user_id=user_id,
+                date_from=date_from,
+                date_to=date_to,
+            )
         )
 
     def audit(
@@ -86,7 +116,13 @@ class AuthService:
         entity_id: str | None,
         detail: str | None,
     ) -> None:
-        self._repository.add_audit_log(
+        """``audit`` se mantiene sincrono (compat con callers legacy).
+
+        En modo async el repository retorna una coroutine: se programa como
+        task del loop activo para que el flush se ejecute, sin requerir
+        que el caller haga await.
+        """
+        result = self._repository.add_audit_log(
             AuditLogRecord(
                 id=uuid4(),
                 user_id=user_id,
@@ -97,3 +133,12 @@ class AuthService:
                 created_at=utcnow(),
             )
         )
+        if asyncio.iscoroutine(result):
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(result)  # fire-and-forget
+                else:
+                    loop.run_until_complete(result)
+            except RuntimeError:
+                pass  # sin event loop (tests sync); el flush queda pendiente

@@ -34,7 +34,7 @@ async def create_orden(
     id_bodega_principal: uuid.UUID,
     id_supervisor: uuid.UUID,
     proveedor_nombre: str,
-    lineas: list[dict],
+    lineas: list[dict[str, Any]],
     proveedor_contacto: str | None = None,
     notas: str | None = None,
 ) -> OrdenCompraView:

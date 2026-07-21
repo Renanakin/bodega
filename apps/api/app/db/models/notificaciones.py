@@ -56,7 +56,13 @@ class Notificacion(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         GUID(),
-        ForeignKey("users.id", ondelete="CASCADE"),
+        # ``dynamic=True`` permite que la FK se cree después de la tabla
+        # ``users`` (en caso de migraciones ``DROP SCHEMA ... CASCADE`` +
+        # ``create_all`` re-crea las tablas en orden alfabetico y ``users``
+        # puede no existir cuando se crea ``notificaciones``). Tambien es
+        # util para tests que hacen ``DROP TABLE notificaciones`` sin
+        # tocar ``users``.
+        ForeignKey("users.id", ondelete="CASCADE", use_alter=True, name="fk_notificaciones_user_id"),
         nullable=False,
     )
     tipo: Mapped[str] = mapped_column(String(60), nullable=False)

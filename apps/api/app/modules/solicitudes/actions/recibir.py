@@ -52,7 +52,7 @@ async def _apply_receive(
     *,
     solicitud: SolicitudRecarga,
     detalles: list[DetalleSolicitudRecarga],
-    lineas: list[dict],
+    lineas: list[dict[str, Any]],
     notas: str | None,
     user_id: uuid.UUID | None,
 ) -> SolicitudView:
@@ -182,7 +182,7 @@ async def receive_solicitud(
     movement: MovementEngine,
     notif,
     solicitud_id: uuid.UUID,
-    lineas: list[dict],
+    lineas: list[dict[str, Any]],
     notas: str | None = None,
     user_id: uuid.UUID | None = None,
 ) -> SolicitudView:

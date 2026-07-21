@@ -199,6 +199,13 @@ def create_app(db_path: str | None = None) -> FastAPI:
     # por el ``ServerErrorMiddleware`` de Starlette.
     install_correlation_handlers(app)
 
+    # Idempotency-Key middleware (Stripe-style). Se monta DESPUES de
+    # ``CorrelationIdMiddleware`` para que los logs de hit/miss ya tengan
+    # correlation_id. Solo afecta a POST/PATCH/PUT/DELETE.
+    from app.core.idempotency import IdempotencyMiddleware  # noqa: PLC0415
+
+    app.add_middleware(IdempotencyMiddleware)
+
     # Estado de la app: conexión a BD
     if backend == "sqlite_legacy":
         # Modo tests legacy (create_app(db_path=":memory:")):

@@ -78,15 +78,72 @@ jobs:
           # Threshold bajado a 77% despues de Fase 5 (gap en transfers/ y worker.py).
           # Ver docs/phase5_report.md seccion "Limitaciones" para el plan.
           #
-          # Excluimos tests/integration/ y test_api_integration.py porque
-          # tienen pre-existing issues con testcontainers (Docker daemon no
-          # accesible desde el checkout action) y signatures de
-          # create_postgres_engine desactualizadas. Esos tests se
-          # ejecutan en el deploy real, no en CI.
+          # FIX Fase 5: ahora corremos tests/integration/ tambien, ya que
+          # con servicios Docker en CI los tests con skipif(not _is_postgres())
+          # se ejecutan contra Postgres real. Excluimos solo
+          # test_api_integration.py (legacy testcontainer con
+          # create_postgres_engine(pool_size=...) desactualizado; ver
+          # docs/plan_mypy.md sprint 4).
           pytest \
-            --ignore=tests/integration \
             --ignore=tests/test_api_integration.py \
             --cov=app --cov-fail-under=77 --cov-report=term-missing
+
+  test-external-services:
+    """Integration tests contra servicios externos vivos (Postgres + Redis + Mailpit).
+
+    FIX Fase 5: este job es NUEVO. Antes los integration tests con
+    DATABASE_URL=postgresql+... solo se ejecutaban manualmente. Ahora
+    corren en CI con servicios reales (Postgres 17, Redis 7, Mailpit
+    via axllent/mailpit) y validan CHECK constraints, concurrencia con
+    SELECT FOR UPDATE, SMTP real, y healthcheck con todos los servicios.
+    """
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: bodegaje
+          POSTGRES_USER: bodegaje
+          POSTGRES_PASSWORD: bodegaje
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+      mailpit:
+        image: axllent/mailpit
+        ports: ["1025:1025", "8025:8025"]
+    env:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://bodegaje:bodegaje@localhost:5432/bodegaje
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-test-secret-32-chars-long-XXXXXX
+      SECRET_KEY: ci-test-secret-32-chars-long-YYYYYY
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
+      SMTP_FROM: noreply@bodega.example
+      PUBLIC_BASE_URL: http://localhost:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run integration tests against live services
+        working-directory: apps/api
+        run: |
+          # Solo los integration tests marcados como tales (los
+          # test_schema_constraints::TestForeignKeys/CHECK tienen skipif
+          # que en CI con Postgres real se ejecutan).
+          pytest tests/integration/ -v --tb=short
 
   lint-frontend:
     runs-on: ubuntu-latest

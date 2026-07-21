@@ -115,7 +115,7 @@ class SolicitudService:
         *,
         id_bodega_origen: uuid.UUID,
         id_bodega_destino: uuid.UUID,
-        lineas: list[dict],
+        lineas: list[dict[str, Any]],
         prioridad: str | None = None,
         notas: str | None = None,
         user_id: uuid.UUID | None = None,
@@ -196,7 +196,7 @@ class SolicitudService:
     async def receive_solicitud(
         self,
         solicitud_id: uuid.UUID,
-        lineas: list[dict],
+        lineas: list[dict[str, Any]],
         notas: str | None = None,
         user_id: uuid.UUID | None = None,
     ) -> SolicitudView:

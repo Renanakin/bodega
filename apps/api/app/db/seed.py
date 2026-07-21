@@ -95,7 +95,7 @@ SEED_STOCK_LEVEL: dict[str, Any] = {
 }
 
 
-def _build_upsert(model: type, row: dict[str, Any], dialect: str):  # type: ignore[no-untyped-def]
+def _build_upsert(model: type, row: dict[str, Any], dialect: str) -> Any:
     """Construye un INSERT ... ON CONFLICT DO NOTHING portable.
 
     - Postgres: usa `ON CONFLICT (col) DO NOTHING`.
@@ -121,7 +121,7 @@ async def _seed_table(
     name: str,
 ) -> str:
     """Inserta una fila idempotentemente. Retorna 'inserted' | 'skipped'."""
-    dialect = session.bind.dialect.name if session.bind else "sqlite"  # type: ignore[union-attr]
+    dialect = session.bind.dialect.name if session.bind else "sqlite"
     stmt = _build_upsert(model, row, dialect)
     result = await session.execute(stmt)
     await session.commit()

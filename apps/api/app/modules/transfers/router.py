@@ -15,6 +15,7 @@ dispatch, receive) ya no son operativas. El cliente debe usar
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from app.db.session import SQLiteDatabase, get_database
 from app.modules.auth.repository import AuthRepository
@@ -146,7 +147,7 @@ def get_transfer(
     )
 
 
-def _app_dependency():  # type: ignore[no-untyped-def]
+def _app_dependency() -> Any:
     """Helper para inyeccion de DB en handlers sync."""
     raise NotImplementedError("Use get_database from app.db.session directly")
 
@@ -173,7 +174,7 @@ def get_derived_transfer(
     _gone("GET /transfers/{id}/derived")
 
 
-def _get_legacy_db() -> SQLiteDatabase | None:  # type: ignore[name-defined]  # noqa: F821
+def _get_legacy_db() -> Any:  # noqa: F821
     """DEPRECATED. Antes intentaba obtener el SQLiteDatabase legacy del app state.
 
     Ya no se usa (el endpoint ``GET /transfers/{id}/derived`` ahora retorna

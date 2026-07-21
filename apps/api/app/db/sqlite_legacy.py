@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
+from typing import Any
 
 from app.core.config import get_settings
 from fastapi import Request
@@ -56,7 +57,7 @@ class SQLiteDatabase:
         self._apply_migrations()
 
     @contextmanager
-    def transaction(self):  # type: ignore[no-untyped-def]
+    def transaction(self) -> Any:
         started = not self._connection.in_transaction
         if started:
             self._connection.execute("BEGIN")
@@ -70,7 +71,7 @@ class SQLiteDatabase:
             raise
 
     @contextmanager
-    def begin_immediate_transaction(self):  # type: ignore[no-untyped-def]
+    def begin_immediate_transaction(self) -> Any:
         """Context manager que adquiere el ``RLock`` y emite ``BEGIN IMMEDIATE``.
 
         Equivalente analogo de ``SELECT ... FOR UPDATE`` sobre SQLite:
@@ -102,7 +103,7 @@ class SQLiteDatabase:
                     self._connection.rollback()
                 raise
 
-    def execute(self, sql: str, params: tuple | list = ()) -> sqlite3.Cursor:  # type: ignore[no-untyped-def]
+    def execute(self, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> sqlite3.Cursor:
         # CRITICO: serializar TODOS los accesos a la conexion con el RLock.
         # Sin esto, uvicorn manda multiples requests en paralelo y sqlite3
         # stdlib (aun con check_same_thread=False) lanza
@@ -111,15 +112,15 @@ class SQLiteDatabase:
         with self._lock:
             return self._connection.execute(sql, params)
 
-    def execute_script(self, sql: str) -> None:  # type: ignore[no-untyped-def]
+    def execute_script(self, sql: str) -> None:
         with self._lock:
             self._connection.executescript(sql)
 
-    def query_one(self, sql: str, params: tuple | list = ()) -> sqlite3.Row | None:  # type: ignore[no-untyped-def]
+    def query_one(self, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> sqlite3.Row | None:
         with self._lock:
             return self.execute(sql, params).fetchone()
 
-    def query_all(self, sql: str, params: tuple | list = ()) -> list[sqlite3.Row]:  # type: ignore[no-untyped-def]
+    def query_all(self, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> list[sqlite3.Row]:
         with self._lock:
             return self.execute(sql, params).fetchall()
 
@@ -163,7 +164,7 @@ def create_database(db_path: str | Path | None = None) -> SQLiteDatabase:
     return SQLiteDatabase(db_path or get_settings().resolved_database_path)
 
 
-def get_database(request: Request) -> SQLiteDatabase:  # type: ignore[no-untyped-def]
+def get_database(request: Request) -> SQLiteDatabase:
     """FastAPI dependency: obtiene el SQLiteDatabase del app.state."""
     return request.app.state.db
 

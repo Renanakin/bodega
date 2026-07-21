@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from sqlalchemy import DateTime, MetaData
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -68,7 +68,7 @@ class GUID(TypeDecorator):
             return str(value)
         return str(uuid.UUID(str(value)))
 
-    def process_result_value(self, value, dialect):  # type: ignore[no-untyped-def, ARG002]  # noqa: ARG002
+    def process_result_value(self, value, dialect) -> Any | None:  # noqa: ARG002
         if value is None:
             return None
         if isinstance(value, uuid.UUID):

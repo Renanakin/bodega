@@ -97,7 +97,7 @@ def render_with_inline_css(
     """
     html = render_template(template_name, context)
     try:
-        from premailer import transform  # type: ignore[import-not-found]
+        from premailer import transform
     except ImportError:
         log.debug("notifications.premailer_unavailable", fallback="style_block")
         return html
