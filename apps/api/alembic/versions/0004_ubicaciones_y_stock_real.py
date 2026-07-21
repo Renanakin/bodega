@@ -62,14 +62,12 @@ def upgrade() -> None:
         ),
     )
 
-    # Extender stock_levels con max_quantity
-    op.add_column(
-        "stock_levels",
-        sa.Column("max_quantity", sa.Numeric(precision=14, scale=2), nullable=True),
-    )
+    # NOTE: max_quantity column was already added in 0001_initial_mvp.
+    # A previous version of this migration tried to add it again here,
+    # which caused DuplicateColumnError on fresh DBs. Keeping the column
+    # definition in 0001 is correct (it's part of the initial schema).
 
 
 def downgrade() -> None:
-    op.drop_column("stock_levels", "max_quantity")
     op.drop_table("inventario_stock_real")
     op.drop_table("ubicaciones_estanteria")

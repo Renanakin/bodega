@@ -101,11 +101,16 @@ jobs:
           fi
       - name: gitleaks full scan
         run: |
-          # Instalar gitleaks (binario Linux, no el .exe de Windows)
-          curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh -s -- -b /usr/local/bin
+          # Instalar gitleaks v8.24.2 (ultima estable) desde GitHub releases.
+          # El script install.sh del repo fue removido en versiones recientes.
+          GITLEAKS_VERSION="8.24.2"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp gitleaks
+          mv /tmp/gitleaks /usr/local/bin/gitleaks
+          chmod +x /usr/local/bin/gitleaks
           gitleaks version
-          # Escanear todo el repo (commits + filesystem)
-          gitleaks detect --source . --no-banner --redact
+          # Escanear todo el repo (commits + filesystem) usando nuestro config.
+          gitleaks detect --source . --no-banner --redact --config .gitleaks.toml
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -128,12 +133,14 @@ jobs:
         working-directory: apps/api
         run: pip install bandit
       - name: Bandit security scan
-        working-directory: apps/api
         run: |
+          cd apps/api
           bandit -r app/ -f json -o /tmp/bandit-report.json || true
           # No fallar el build por warnings de severidad baja; solo HIGH.
+          # Usar $GITHUB_WORKSPACE para resolver la ruta absoluta al script
+          # independiente del working-directory del step.
           if [ -f /tmp/bandit-report.json ]; then
-            python infra/scripts/ci/check-bandit.py /tmp/bandit-report.json
+            python "$GITHUB_WORKSPACE/infra/scripts/ci/check-bandit.py" /tmp/bandit-report.json
           fi
       - name: Verify .env.example has all placeholders
         run: |
