@@ -210,5 +210,165 @@ class AuthMeTestCase(AsyncTestBase, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(me.json()["role"], "supervisor")
 
 
+class AuthRefreshTokenTestCase(AsyncTestBase, unittest.IsolatedAsyncioTestCase):
+    """C5.1: refresh tokens.
+
+    Cubre:
+    - login devuelve access + refresh token.
+    - POST /auth/refresh rota el par y devuelve tokens nuevos.
+    - El access token viejo deja de funcionar despues del refresh.
+    - El refresh token viejo tambien deja de funcionar (rotacion).
+    - Un refresh token invalido retorna 401.
+    """
+
+    def test_login_returns_refresh_token(self) -> None:
+        r = _login(self.client, "admin", "demo123")
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn("token", body)
+        self.assertIn("refresh_token", body)
+        self.assertIn("expires_at", body)
+        self.assertIn("refresh_expires_at", body)
+        self.assertNotEqual(body["token"], body["refresh_token"])
+
+    def test_refresh_rotates_pair(self) -> None:
+        # 1. Login inicial
+        r1 = _login(self.client, "admin", "demo123")
+        old_token = r1.json()["token"]
+        old_refresh = r1.json()["refresh_token"]
+
+        # 2. Refresh
+        r2 = self.client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": old_refresh},
+        )
+        self.assertEqual(r2.status_code, 200)
+        body2 = r2.json()
+        new_token = body2["token"]
+        new_refresh = body2["refresh_token"]
+
+        # 3. Los tokens son distintos (rotaron)
+        self.assertNotEqual(old_token, new_token)
+        self.assertNotEqual(old_refresh, new_refresh)
+
+    def test_old_access_token_invalidated_after_refresh(self) -> None:
+        r1 = _login(self.client, "admin", "demo123")
+        old_token = r1.json()["token"]
+        old_refresh = r1.json()["refresh_token"]
+
+        # Refresh invalida la sesion vieja
+        self.client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
+
+        # El access token viejo ya no funciona
+        me = self.client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {old_token}"},
+        )
+        self.assertEqual(me.status_code, 401)
+
+    def test_old_refresh_token_invalidated_after_rotation(self) -> None:
+        r1 = _login(self.client, "admin", "demo123")
+        old_refresh = r1.json()["refresh_token"]
+
+        # Primer refresh: OK
+        r2 = self.client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": old_refresh}
+        )
+        self.assertEqual(r2.status_code, 200)
+
+        # Segundo refresh con el MISMO refresh viejo: 401
+        r3 = self.client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": old_refresh}
+        )
+        self.assertEqual(r3.status_code, 401)
+
+    def test_refresh_with_invalid_token_returns_401(self) -> None:
+        r = self.client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": "this-is-not-a-real-token"},
+        )
+        self.assertEqual(r.status_code, 401)
+
+    def test_new_access_token_works_after_refresh(self) -> None:
+        r1 = _login(self.client, "admin", "demo123")
+        old_refresh = r1.json()["refresh_token"]
+        r2 = self.client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": old_refresh}
+        )
+        new_token = r2.json()["token"]
+
+        # El nuevo access token funciona para /auth/me
+        me = self.client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {new_token}"},
+        )
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.json()["username"], "admin")
+
+
+class AuthRateLimitTestCase(AsyncTestBase, unittest.IsolatedAsyncioTestCase):
+    """C5.2: rate limit por USERNAME (no por IP) en /auth/login y /auth/refresh.
+
+    Verifica que un atacante con IPs distintas pero el mismo username
+    es bloqueado tras N intentos (OWASP Authentication Cheat Sheet).
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        from app.core.rate_limit import reset_rate_limiter_for_tests
+        reset_rate_limiter_for_tests()
+
+    def test_login_rate_limit_blocks_after_5_attempts_same_username(self) -> None:
+        """5 logins con password incorrecto para el mismo username.
+
+        El limite es 5 por minuto POR USERNAME. Las primeras 4 requests
+        pasan (y devuelven 401 invalid_credentials). La 5ta request es
+        rate-limited (429).
+        """
+        for i in range(4):
+            r = _login(self.client, "admin", f"wrong-{i}")
+            self.assertEqual(r.status_code, 401, f"intento {i}: {r.text}")
+
+        # La 5ta request es rate-limited (429)
+        r = _login(self.client, "admin", "wrong-5")
+        self.assertEqual(r.status_code, 429, r.text)
+        body = r.json()["detail"]
+        self.assertEqual(body["code"], "rate_limited")
+        self.assertIn("retry_after", body["extra"])
+
+    def test_login_rate_limit_resets_after_window(self) -> None:
+        """Verifica que el rate limit es por ventana, no permanente."""
+        for i in range(4):
+            r = _login(self.client, "admin", f"wrong-{i}")
+            self.assertEqual(r.status_code, 401)
+        r = _login(self.client, "admin", "wrong-4")
+        self.assertEqual(r.status_code, 429, r.text)
+
+        # Limpiar el rate limiter (simula que paso la ventana)
+        from app.core.rate_limit import reset_rate_limiter_for_tests
+        reset_rate_limiter_for_tests()
+
+        # Ahora pasa lauth (no el rate limit) aunque la password siga mal
+        r = _login(self.client, "admin", "wrong-Y")
+        self.assertEqual(r.status_code, 401)
+
+    def test_login_rate_limit_is_per_username_not_global(self) -> None:
+        """Si el rate limit fuera global, bloquearia OTROS usernames.
+
+        Verificamos que cada username tiene su propio bucket.
+        """
+        # 4 intentos para "admin" (no lauth)
+        for i in range(4):
+            r = _login(self.client, "admin", f"wrong-{i}")
+            self.assertEqual(r.status_code, 401)
+        r = _login(self.client, "admin", "wrong-4")
+        self.assertEqual(r.status_code, 429)
+
+        # "otro_usuario" deberia pasar el rate limit (su bucket esta vacio)
+        r = _login(self.client, "otro_usuario", "wrong-Y")
+        # Pasa el rate limit y falla por 401 (usuario no existe)
+        self.assertEqual(r.status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()

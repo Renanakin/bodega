@@ -15,12 +15,14 @@ from __future__ import annotations
 import asyncio
 import inspect
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
 from app.core.errors import AuthenticationError, InvalidCredentialsError
 from app.db.session import AuditLogRecord, SessionRecord, UserRecord, utcnow
 from app.modules.auth.repository import AuthRepository
+from app.core.config import get_settings
 from app.modules.auth.security import issue_token, session_expiration, verify_password
 
 
@@ -35,6 +37,8 @@ async def _maybe_await(value: Any) -> Any:
 class AuthSessionView:
     token: str
     expires_at: object
+    refresh_token: str | None = None
+    refresh_expires_at: object | None = None
 
 
 class AuthService:
@@ -48,12 +52,19 @@ class AuthService:
         if user is None or not user.is_active or not verify_password(password, user.password_hash):
             raise InvalidCredentialsError()
 
+        now = utcnow()
+        # C5.1: generar access token (corta) + refresh token (larga).
+        access_expiration = now + timedelta(minutes=60)
+        refresh_expiration = now + timedelta(days=7)
+
         session = SessionRecord(
             id=uuid4(),
             user_id=user.id,
             token=issue_token(),
-            expires_at=session_expiration(),
-            created_at=utcnow(),
+            refresh_token=issue_token(),  # otro token random distinto
+            expires_at=access_expiration,
+            refresh_expires_at=refresh_expiration,
+            created_at=now,
         )
         await _maybe_await(self._repository.add_session(session))
         await self.audit(
@@ -63,7 +74,70 @@ class AuthService:
             entity_id=session.token,
             detail=f"Inicio de sesion de {user.username}",
         )
-        return user, AuthSessionView(token=session.token, expires_at=session.expires_at)
+        return user, AuthSessionView(
+            token=session.token,
+            refresh_token=session.refresh_token,
+            expires_at=session.expires_at,
+            refresh_expires_at=session.refresh_expires_at,
+        )
+
+    async def refresh_session(self, refresh_token: str) -> AuthSessionView:
+        """C5.1: refresh tokens con rotacion.
+
+        Estrategia (RFC 6749 sec 6 + best-practice de OWASP):
+        1. Validar que el refresh_token existe y no ha expirado.
+        2. Invalidar la sesion vieja (DELETE user_sessions WHERE token=?).
+        3. Emitir un nuevo par access+refresh con misma user_id.
+        4. Devolver ambos.
+
+        Si alguien roba un refresh_token, al usarlo el atacante lo invalida
+        a si mismo, y el usuario real (si intenta usar el mismo refresh)
+        se entera con un 401. Esto mitiga replay attacks.
+        """
+        if not refresh_token:
+            raise InvalidCredentialsError()
+        session = await _maybe_await(
+            self._repository.get_session_by_refresh_token(refresh_token)
+        )
+        if session is None:
+            raise InvalidCredentialsError()
+        # Normalizar a tz-aware (mismo fix que get_user_by_token).
+        from datetime import UTC
+        if session.refresh_expires_at.tzinfo is None:
+            session.refresh_expires_at = session.refresh_expires_at.replace(tzinfo=UTC)
+        if session.refresh_expires_at <= utcnow():
+            # refresh vencido: limpiar la sesion
+            await _maybe_await(self._repository.delete_session(session.token))
+            raise InvalidCredentialsError()
+
+        # 2. Invalidar la sesion vieja
+        await _maybe_await(self._repository.delete_session(session.token))
+
+        # 3. Emitir nuevo par
+        now = utcnow()
+        new_session = SessionRecord(
+            id=uuid4(),
+            user_id=session.user_id,
+            token=issue_token(),
+            refresh_token=issue_token(),
+            expires_at=now + timedelta(minutes=60),
+            refresh_expires_at=now + timedelta(days=7),
+            created_at=now,
+        )
+        await _maybe_await(self._repository.add_session(new_session))
+        await self.audit(
+            user_id=session.user_id,
+            action="auth.refresh",
+            entity_type="session",
+            entity_id=new_session.token,
+            detail="Refresh token rotado",
+        )
+        return AuthSessionView(
+            token=new_session.token,
+            refresh_token=new_session.refresh_token,
+            expires_at=new_session.expires_at,
+            refresh_expires_at=new_session.refresh_expires_at,
+        )
 
     async def get_user_by_token(self, token: str | None) -> UserRecord:
         if not token:

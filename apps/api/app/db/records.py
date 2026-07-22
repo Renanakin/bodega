@@ -106,7 +106,9 @@ class SessionRecord:
     id: UUID
     user_id: UUID
     token: str
+    refresh_token: str
     expires_at: datetime
+    refresh_expires_at: datetime
     created_at: datetime
 
 

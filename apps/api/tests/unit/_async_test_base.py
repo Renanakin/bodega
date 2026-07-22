@@ -71,6 +71,14 @@ class AsyncTestBase:
     factory: Any
 
     async def asyncSetUp(self) -> None:
+        # C5.2: resetear el rate limiter para que tests no se contaminen
+        # entre si (el limiter es un singleton del modulo).
+        try:
+            from app.core.rate_limit import reset_rate_limiter_for_tests
+            reset_rate_limiter_for_tests()
+        except Exception:
+            pass
+
         self._tmpdir = tempfile.mkdtemp(prefix="bodega-async-test-")
         self._db_path = os.path.join(self._tmpdir, "test.db")
         db_url = f"sqlite+aiosqlite:///{self._db_path}"

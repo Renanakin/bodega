@@ -45,10 +45,21 @@ class User(Base):
 
 
 class UserSession(Base):
-    """Sesión activa de un usuario (token bearer)."""
+    """Sesión activa de un usuario (token bearer + refresh token).
+
+    C5.1: refresh tokens. El ``token`` (access) tiene expiración corta
+    (1h por defecto) y se envía en cada request como Bearer. El
+    ``refresh_token`` tiene expiración larga (7d por defecto) y solo
+    se usa para obtener un nuevo access token via ``POST /auth/refresh``.
+    Ambos se rotan juntos: cuando se usa el refresh, se invalidan los
+    anteriores y se emiten nuevos (mitigación de robo de tokens).
+    """
 
     __tablename__ = "user_sessions"
-    __table_args__ = (Index("ix_user_sessions_token", "token"),)
+    __table_args__ = (
+        Index("ix_user_sessions_token", "token"),
+        Index("ix_user_sessions_refresh_token", "refresh_token"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -57,7 +68,9 @@ class UserSession(Base):
         nullable=False,
     )
     token: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
+    refresh_token: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    refresh_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at = created_at_column()
 
 

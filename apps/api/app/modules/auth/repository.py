@@ -45,7 +45,11 @@ def _session_to_record(session: UserSession) -> SessionRecord:
         id=session.id,
         user_id=session.user_id,
         token=session.token,
+        # C5.1: refresh tokens. Para sesiones legacy (pre-C5.1) el campo
+        # puede venir como None; caemos a un valor derivado del token.
+        refresh_token=getattr(session, "refresh_token", None) or f"legacy-{session.token[:32]}",
         expires_at=session.expires_at,
+        refresh_expires_at=getattr(session, "refresh_expires_at", None) or session.expires_at,
         created_at=session.created_at,
     )
 
@@ -99,7 +103,9 @@ class AuthRepository:
                 id=session.id,
                 user_id=session.user_id,
                 token=session.token,
+                refresh_token=session.refresh_token,
                 expires_at=session.expires_at,
+                refresh_expires_at=session.refresh_expires_at,
                 created_at=session.created_at,
             )
         )
@@ -109,6 +115,14 @@ class AuthRepository:
     async def _async_get_session_by_token(self, token: str) -> SessionRecord | None:
         result = await self._backend.execute(
             select(UserSession).where(UserSession.token == token)
+        )
+        s = result.scalar_one_or_none()
+        return _session_to_record(s) if s is not None else None
+
+    async def _async_get_session_by_refresh_token(self, refresh_token: str) -> SessionRecord | None:
+        """C5.1: lookup por refresh token (no por access token)."""
+        result = await self._backend.execute(
+            select(UserSession).where(UserSession.refresh_token == refresh_token)
         )
         s = result.scalar_one_or_none()
         return _session_to_record(s) if s is not None else None
@@ -193,14 +207,17 @@ class AuthRepository:
     def _legacy_add_session(self, session: SessionRecord) -> SessionRecord:
         self._backend.execute(
             """
-            INSERT INTO user_sessions (id, user_id, token, expires_at, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO user_sessions
+                (id, user_id, token, refresh_token, expires_at, refresh_expires_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(session.id),
                 str(session.user_id),
                 session.token,
+                session.refresh_token,
                 session.expires_at.isoformat(),
+                session.refresh_expires_at.isoformat(),
                 session.created_at.isoformat(),
             ),
         )
@@ -210,6 +227,18 @@ class AuthRepository:
         row = self._backend.query_one(
             "SELECT * FROM user_sessions WHERE token = ?", (token,)
         )
+        return _legacy_session_to_record(row) if row is not None else None
+
+    def _legacy_get_session_by_refresh_token(self, refresh_token: str) -> SessionRecord | None:
+        """C5.1: lookup por refresh token en modo legacy (sync SQLite)."""
+        # Si la columna no existe (pre-C5.1), hacer SELECT dinamico.
+        try:
+            row = self._backend.query_one(
+                "SELECT * FROM user_sessions WHERE refresh_token = ?", (refresh_token,)
+            )
+        except Exception:
+            # Fallback para BDs legacy sin la columna
+            return None
         return _legacy_session_to_record(row) if row is not None else None
 
     def _legacy_delete_session(self, token: str) -> None:
@@ -291,6 +320,12 @@ class AuthRepository:
             return self._async_get_session_by_token(token)
         return self._legacy_get_session_by_token(token)
 
+    def get_session_by_refresh_token(self, refresh_token: str) -> Any:
+        """C5.1: lookup por refresh token (async + legacy)."""
+        if self._is_async:
+            return self._async_get_session_by_refresh_token(refresh_token)
+        return self._legacy_get_session_by_refresh_token(refresh_token)
+
     def delete_session(self, token: str) -> Any:
         if self._is_async:
             return self._async_delete_session(token)
@@ -352,7 +387,11 @@ def _legacy_session_to_record(row) -> SessionRecord:
         id=UUID(row["id"]),
         user_id=UUID(row["user_id"]),
         token=row["token"],
+        # C5.1: fallback a derivado del token si la BD legacy no tiene
+        # la columna (schema pre-C5.1). Ver models.UserSession docstring.
+        refresh_token=row.get("refresh_token") or f"legacy-{row['token'][:32]}",
         expires_at=datetime.fromisoformat(row["expires_at"]),
+        refresh_expires_at=datetime.fromisoformat(row.get("refresh_expires_at") or row["expires_at"]),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 

@@ -50,10 +50,46 @@ class RateLimiter:
         max_requests: int,
         window_seconds: int,
     ) -> RateLimitResult:
-        """Verifica si la IP puede hacer otra request en el scope dado."""
+        """Verifica si la IP puede hacer otra request en el scope dado.
+
+        C5.2: para ``/auth/login`` y ``/auth/refresh`` usamos el ``username``
+        como key (no la IP). Esto mitiga el caso de un atacante con muchas
+        IPs (botnet) atacando un usuario especifico. Ver
+        ``auth_login_rate_limit_dependency`` en ``app/modules/auth/router.py``.
+        """
+        return self._check_bucket(
+            bucket_key=(ip, scope),
+            max_requests=max_requests,
+            window_seconds=window_seconds,
+        )
+
+    def check_by_key(
+        self,
+        key: str,
+        scope: str,
+        max_requests: int,
+        window_seconds: int,
+    ) -> RateLimitResult:
+        """C5.2: variante donde la key NO es la IP (ej: username, token).
+
+        Usado por /auth/login y /auth/refresh para limitar por usuario
+        y no por IP. Ver auth_login_rate_limit_dependency.
+        """
+        return self._check_bucket(
+            bucket_key=(key, scope),
+            max_requests=max_requests,
+            window_seconds=window_seconds,
+        )
+
+    def _check_bucket(
+        self,
+        bucket_key: tuple[str, str],
+        max_requests: int,
+        window_seconds: int,
+    ) -> RateLimitResult:
         now = time.monotonic()
         cutoff = now - window_seconds
-        bucket = self._buckets[(ip, scope)]
+        bucket = self._buckets[bucket_key]
 
         # Descartar timestamps fuera de la ventana
         while bucket and bucket[0] < cutoff:
@@ -123,6 +159,81 @@ def rate_limit_dependency(
         ip = _extract_client_ip(request)
         result = limiter.check(
             ip=ip,
+            scope=scope,
+            max_requests=max_requests,
+            window_seconds=window_seconds,
+        )
+        if not result.allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "code": "rate_limited",
+                    "message": (
+                        f"Demasiadas solicitudes. Intente de nuevo en "
+                        f"{result.retry_after_seconds}s."
+                    ),
+                    "extra": {"retry_after": result.retry_after_seconds},
+                },
+                headers={"Retry-After": str(result.retry_after_seconds)},
+            )
+        request.state.rate_limit_remaining = result.remaining
+
+    return _dependency
+
+
+def rate_limit_by_key_dependency(
+    scope: str,
+    max_requests: int,
+    window_seconds: int,
+    key_extractor: Callable[[Request], str | None],
+) -> Callable:
+    """C5.2: factory de dependencies con key arbitraria (no IP).
+
+    A diferencia de ``rate_limit_dependency`` (que usa la IP del cliente),
+    esta variante deja que el caller extraiga la key del request. Usado
+    para limitar por ``username`` en ``/auth/login`` y por ``refresh_token``
+    en ``/auth/refresh``.
+
+    Args:
+        scope: nombre del bucket (ej: "auth_login", "auth_refresh").
+        max_requests: requests permitidas en la ventana.
+        window_seconds: tamano de la ventana.
+        key_extractor: callable sync o async que toma el Request y
+            devuelve la key (o None si no se puede extraer; en ese caso
+            la request se permite sin rate-limit).
+
+    Uso:
+        async def _key_by_username(request: Request) -> str | None:
+            body = await request.json()
+            return body.get("username", "").lower().strip()
+
+        @router.post("/auth/login")
+        async def login(
+            request: Request,
+            _=Depends(rate_limit_by_key_dependency(
+                scope="auth_login",
+                max_requests=5,
+                window_seconds=60,
+                key_extractor=_key_by_username,
+            )),
+        ):
+            ...
+    """
+    limiter = _rate_limiter
+
+    async def _dependency(request: Request) -> None:
+        # La key_extractor es siempre async (definido en el router con
+        # ``async def``). El check via co_flags es fragil en Python 3.14+
+        # donde las flags cambiaron, asi que simplemente intentamos await.
+        try:
+            key = await key_extractor(request)
+        except TypeError:
+            # Si por error el caller definio un extractor sync
+            key = key_extractor(request)
+        if not key:
+            return
+        result = limiter.check_by_key(
+            key=key,
             scope=scope,
             max_requests=max_requests,
             window_seconds=window_seconds,
