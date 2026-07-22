@@ -1,22 +1,40 @@
 """
-Tests del módulo de stock por ubicación (Fase 2).
+Tests del módulo de stock por ubicación (migrado a Depends(get_session)).
 
 Cubre:
 - Upsert de stock por ubicación (idempotente).
 - Listado granular con filtro warehouse_id y product_id.
 - Distribución multibodega con formato spec §4.1.
 - Bajo mínimo: respeta el filtro de bodega.
+
+Migrado: usa ``DATABASE_URL=sqlite+aiosqlite:///<archivo>`` + schema async
++ seed del admin via AsyncSession. El UPDATE a stock_levels (para el
+test de bajo mínimo) se hace via SQLAlchemy ORM, no SQL crudo.
 """
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
-from uuid import uuid4
+import uuid
 
-from app.db.session import utcnow
+from app.core.config import reset_settings_cache
+from app.db import models  # noqa: F401
+from app.db.base import Base
+from app.db.models.inventory import StockLevel
+from app.db.models.users import User
+from app.db.session import (
+    get_engine,
+    get_session_factory,
+    reset_engine_cache,
+    utcnow,
+)
 from app.main import create_app
 from app.modules.auth.security import hash_password
 from fastapi.testclient import TestClient
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
@@ -25,17 +43,6 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
         json={"username": "admin", "password": "demo123"},
     )
     return {"Authorization": f"Bearer {r.json()['token']}"}
-
-
-def _create_user(db) -> None:
-    now = utcnow().isoformat()
-    db.execute(
-        """
-        INSERT INTO users (id, username, full_name, role, password_hash, is_active, created_at)
-        VALUES (?, ?, ?, ?, ?, 1, ?)
-        """,
-        (str(uuid4()), "admin", "Admin", "admin", hash_password("demo123"), now),
-    )
 
 
 def _create_warehouse(client: TestClient, headers: dict[str, str], code: str) -> str:
@@ -91,15 +98,86 @@ def _register_movement(
     assert r.status_code == 201, r.text
 
 
-class StockRealTestCase(unittest.TestCase):
-    def setUp(self) -> None:
-        self.app = create_app(db_path=":memory:")
-        self.client = TestClient(self.app)
-        _create_user(self.app.state.db)
-        self.headers = _auth_headers(self.client)
+class _AsyncTestBase(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp(prefix="bodega-stock-")
+        self._db_path = os.path.join(self._tmpdir, "test.db")
+        db_url = f"sqlite+aiosqlite:///{self._db_path}"
 
-    def tearDown(self) -> None:
-        self.app.state.db.close()
+        self._saved_env: dict[str, str | None] = {}
+        for key in (
+            "DATABASE_URL",
+            "ENVIRONMENT",
+            "JWT_SECRET",
+            "SECRET_KEY",
+            "REDIS_URL",
+        ):
+            self._saved_env[key] = os.environ.get(key)
+        os.environ["DATABASE_URL"] = db_url
+        os.environ["ENVIRONMENT"] = "development"
+        os.environ.setdefault("JWT_SECRET", "x" * 32)
+        os.environ.setdefault("SECRET_KEY", "x" * 32)
+        os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+        reset_settings_cache()
+        reset_engine_cache()
+
+        self.app = create_app()
+        self.client = TestClient(self.app)
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        factory = get_session_factory()
+        async with factory() as session:
+            session.add(
+                User(
+                    id=uuid.uuid4(),
+                    username="admin",
+                    full_name="Admin",
+                    role="admin",
+                    password_hash=hash_password("demo123"),
+                    is_active=True,
+                    created_at=utcnow(),
+                )
+            )
+            await session.commit()
+
+        self.headers = _auth_headers(self.client)
+        self.factory = factory
+
+    async def asyncTearDown(self) -> None:
+        await get_engine().dispose()
+        reset_engine_cache()
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        reset_settings_cache()
+        try:
+            os.remove(self._db_path)
+            os.rmdir(self._tmpdir)
+        except OSError:
+            pass
+
+
+class StockRealTestCase(_AsyncTestBase):
+    async def _set_min_quantity(
+        self, warehouse_id: str, product_id: str, min_q: int
+    ) -> None:
+        """Setea min_quantity via SQLAlchemy ORM (no SQL crudo)."""
+        async with self.factory() as session:  # type: AsyncSession
+            stmt = (
+                update(StockLevel)
+                .where(
+                    StockLevel.warehouse_id == uuid.UUID(warehouse_id),
+                    StockLevel.product_id == uuid.UUID(product_id),
+                )
+                .values(min_quantity=min_q)
+            )
+            await session.execute(stmt)
+            await session.commit()
 
     def test_upsert_idempotente(self) -> None:
         wh = _create_warehouse(self.client, self.headers, "WH-UPS")
@@ -203,14 +281,13 @@ class StockRealTestCase(unittest.TestCase):
         # WH2: 50 unidades con min=10 (OK)
         _register_movement(self.client, self.headers, wh2, prod, 50)
 
-        # Setear min_quantity via SQL directo
-        self.app.state.db.execute(
-            "UPDATE stock_levels SET min_quantity = ? WHERE warehouse_id = ? AND product_id = ?",
-            (10, wh1, prod),
+        # Setear min_quantity via SQLAlchemy ORM (no app.state.db legacy)
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(
+            self._set_min_quantity(wh1, prod, 10)
         )
-        self.app.state.db.execute(
-            "UPDATE stock_levels SET min_quantity = ? WHERE warehouse_id = ? AND product_id = ?",
-            (10, wh2, prod),
+        asyncio.get_event_loop().run_until_complete(
+            self._set_min_quantity(wh2, prod, 10)
         )
 
         # Sin filtro → ambos
@@ -241,7 +318,7 @@ class StockRealTestCase(unittest.TestCase):
             "/api/v1/inventario/real",
             json={
                 "id_producto": prod,
-                "id_ubicacion": str(uuid4()),
+                "id_ubicacion": str(uuid.uuid4()),
                 "cantidad": 1,
             },
             headers=self.headers,

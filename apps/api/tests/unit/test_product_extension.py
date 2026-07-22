@@ -1,5 +1,5 @@
 """
-Tests del sub-recurso ``detalles_neumaticos`` (Fase 2).
+Tests del sub-recurso ``detalles_neumaticos`` (migrado a Depends(get_session)).
 
 Cubre:
 - GET 404 si no hay detalle.
@@ -7,14 +7,28 @@ Cubre:
 - DELETE 404 si no existe.
 - DELETE 404 si el producto no existe.
 - Relación 1:1: segundo PUT sobre mismo producto actualiza, no duplica.
+
+Migrado: usa ``DATABASE_URL=sqlite+aiosqlite:///<archivo>`` + schema async
++ seed del admin via AsyncSession. Ya no depende de ``app.state.db`` legacy.
 """
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
-from uuid import uuid4
+import uuid
 
-from app.db.session import utcnow
+from app.core.config import reset_settings_cache
+from app.db import models  # noqa: F401
+from app.db.base import Base
+from app.db.models.users import User
+from app.db.session import (
+    get_engine,
+    get_session_factory,
+    reset_engine_cache,
+    utcnow,
+)
 from app.main import create_app
 from app.modules.auth.security import hash_password
 from fastapi.testclient import TestClient
@@ -28,17 +42,6 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
-def _create_user(db) -> None:
-    now = utcnow().isoformat()
-    db.execute(
-        """
-        INSERT INTO users (id, username, full_name, role, password_hash, is_active, created_at)
-        VALUES (?, ?, ?, ?, ?, 1, ?)
-        """,
-        (str(uuid4()), "admin", "Admin", "admin", hash_password("demo123"), now),
-    )
-
-
 def _create_product(client: TestClient, headers: dict[str, str], sku: str) -> str:
     r = client.post(
         "/api/v1/products",
@@ -49,16 +52,70 @@ def _create_product(client: TestClient, headers: dict[str, str], sku: str) -> st
     return r.json()["id"]
 
 
-class ProductExtensionTestCase(unittest.TestCase):
-    def setUp(self) -> None:
-        self.app = create_app(db_path=":memory:")
+class _AsyncTestBase(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp(prefix="bodega-ext-")
+        self._db_path = os.path.join(self._tmpdir, "test.db")
+        db_url = f"sqlite+aiosqlite:///{self._db_path}"
+
+        self._saved_env: dict[str, str | None] = {}
+        for key in (
+            "DATABASE_URL",
+            "ENVIRONMENT",
+            "JWT_SECRET",
+            "SECRET_KEY",
+            "REDIS_URL",
+        ):
+            self._saved_env[key] = os.environ.get(key)
+        os.environ["DATABASE_URL"] = db_url
+        os.environ["ENVIRONMENT"] = "development"
+        os.environ.setdefault("JWT_SECRET", "x" * 32)
+        os.environ.setdefault("SECRET_KEY", "x" * 32)
+        os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+        reset_settings_cache()
+        reset_engine_cache()
+
+        self.app = create_app()
         self.client = TestClient(self.app)
-        _create_user(self.app.state.db)
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        factory = get_session_factory()
+        async with factory() as session:
+            session.add(
+                User(
+                    id=uuid.uuid4(),
+                    username="admin",
+                    full_name="Admin",
+                    role="admin",
+                    password_hash=hash_password("demo123"),
+                    is_active=True,
+                    created_at=utcnow(),
+                )
+            )
+            await session.commit()
+
         self.headers = _auth_headers(self.client)
 
-    def tearDown(self) -> None:
-        self.app.state.db.close()
+    async def asyncTearDown(self) -> None:
+        await get_engine().dispose()
+        reset_engine_cache()
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        reset_settings_cache()
+        try:
+            os.remove(self._db_path)
+            os.rmdir(self._tmpdir)
+        except OSError:
+            pass
 
+
+class ProductExtensionTestCase(_AsyncTestBase):
     def test_get_404_sin_detalle(self) -> None:
         prod = _create_product(self.client, self.headers, "N-001")
         r = self.client.get(f"/api/v1/products/{prod}/neumatico", headers=self.headers)
@@ -148,7 +205,7 @@ class ProductExtensionTestCase(unittest.TestCase):
 
     def test_product_not_found_en_upsert(self) -> None:
         r = self.client.put(
-            f"/api/v1/products/{uuid4()}/neumatico",
+            f"/api/v1/products/{uuid.uuid4()}/neumatico",
             json={"ancho": 195, "perfil": 65, "aro": 15},
             headers=self.headers,
         )
