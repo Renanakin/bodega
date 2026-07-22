@@ -56,7 +56,7 @@ class AuthService:
             created_at=utcnow(),
         )
         await _maybe_await(self._repository.add_session(session))
-        self.audit(
+        await self.audit(
             user_id=user.id,
             action="auth.login",
             entity_type="session",
@@ -107,7 +107,7 @@ class AuthService:
             )
         )
 
-    def audit(
+    async def audit(
         self,
         *,
         user_id,
@@ -116,11 +116,11 @@ class AuthService:
         entity_id: str | None,
         detail: str | None,
     ) -> None:
-        """``audit`` se mantiene sincrono (compat con callers legacy).
+        """Registra un evento de auditoria.
 
-        En modo async el repository retorna una coroutine: se programa como
-        task del loop activo para que el flush se ejecute, sin requerir
-        que el caller haga await.
+        FIX: este metodo es ``async`` para que el router lo pueda ``await``.
+        Antes era sync + fire-and-forget, lo que causaba que el flush
+        se perdiera en algunos tests (la coroutine quedaba pendiente).
         """
         result = self._repository.add_audit_log(
             AuditLogRecord(
@@ -133,12 +133,4 @@ class AuthService:
                 created_at=utcnow(),
             )
         )
-        if asyncio.iscoroutine(result):
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(result)  # fire-and-forget
-                else:
-                    loop.run_until_complete(result)
-            except RuntimeError:
-                pass  # sin event loop (tests sync); el flush queda pendiente
+        await _maybe_await(result)

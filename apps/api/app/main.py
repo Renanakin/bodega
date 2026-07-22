@@ -32,7 +32,6 @@ from app.core.logging import configure_logging, get_logger
 from app.core.middleware import (
     install_correlation_handlers,
 )
-from app.db.session import create_database
 
 # Configurar logging ANTES de instanciar la app (R8)
 configure_logging()
@@ -102,15 +101,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         environment=get_settings().environment,
         version=get_settings().app_version,
     )
-    # Si el backend activo es sqlite_legacy (sync SQLite), inicializar el
-    # schema via create_all (no usamos Alembic para este path porque las
-    # migraciones son .sql de SQLite, no Alembic). En Postgres/SQLite async
-    # dejamos que Alembic sea el unico source of truth del schema (corre en
-    # el entrypoint del compose antes de uvicorn).
-    if (
-        getattr(app.state, "async_engine_initialized", False)
-        and getattr(app.state, "db", None) is not None
-    ):
+    # FIX Fase 5+: ya no hay rama ``sqlite_legacy``. El schema async se
+    # inicializa siempre via ``init_async_schema`` (idempotente) si el
+    # engine async esta activo. En Postgres/SQLite async dejamos que
+    # Alembic sea el unico source of truth del schema en produccion;
+    # este create_all es un bootstrap para dev/test.
+    if getattr(app.state, "async_engine_initialized", False):
         from app.db.session import init_async_schema  # noqa: PLC0415
 
         await init_async_schema()
@@ -118,41 +114,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     log.info("app.shutdown")
 
 
-def _resolve_backend(db_path: str | None) -> tuple[str, str]:
+def _resolve_backend(db_path: str | None = None) -> tuple[str, str]:
     """Decide qué backend de BD usar y devuelve (backend_name, detail).
 
     Returns:
         Tupla (backend, detail) donde:
-        - backend ∈ {"sqlite_legacy", "sqlite", "postgres"}
+        - backend ∈ {"sqlite", "postgres"}
         - detail es el path o URL (sin credenciales) para logging.
+
+    El parametro ``db_path`` se mantiene por compat historica con tests
+    que pasaban ``create_app(db_path=":memory:")``. En Fase 5+ se ignora:
+    el backend siempre se decide por ``settings.database_url`` o, en su
+    defecto, por el path por defecto (legacy sync ya no existe).
     """
     settings = get_settings()
 
-    # Caso 1: tests pasan db_path explícito → legacy sync SQLite (Fase 0/1).
-    if db_path is not None:
-        return "sqlite_legacy", f"path={db_path}"
-
-    # Caso 2: tests sin db_path (create_app() pelado) → legacy sync SQLite.
-    if not settings.database_url:
-        return "sqlite_legacy", f"path={settings.resolved_database_path}"
-
-    # Caso 3: DATABASE_URL define postgres → backend target de Fase 1.
+    # DATABASE_URL define postgres → backend target de Fase 1.
     if settings.db_backend == "postgres":
         from app.db.session import _redact_url
 
         return "postgres", _redact_url(settings.database_url)
 
-    # Caso 4: DATABASE_URL es sqlite explícito → backend SQLite async.
-    return "sqlite", settings.database_url
+    # Cualquier otro caso: backend SQLite async.
+    return "sqlite", settings.database_url or "(default in-memory)"
 
 
-def create_app(db_path: str | None = None) -> FastAPI:
+def create_app(db_path: str | None = None) -> FastAPI:  # noqa: ARG001
     """Factory de la aplicación FastAPI.
 
     Args:
-        db_path: Si se pasa, se usa como ruta SQLite para tests
-            (mantiene la API legacy de Fase 0/1). Si es None, se
-            decide el backend según `settings.database_url`.
+        db_path: DEPRECATED. Se mantiene por compat historica con
+            tests que pasaban ``create_app(db_path=":memory:")``. En
+            Fase 5+ se ignora: el backend siempre se decide por
+            ``settings.database_url``.
 
     Returns:
         App FastAPI lista para `uvicorn app.main:app`.
@@ -206,45 +200,16 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
     app.add_middleware(IdempotencyMiddleware)
 
-    # Estado de la app: conexión a BD
-    if backend == "sqlite_legacy":
-        # Modo tests legacy (create_app(db_path=":memory:")):
-        # solo sync SQLite, sin engine async.
-        app.state.db = create_database(db_path)
-        app.state.async_engine_initialized = False
-    elif backend == "sqlite":
-        # Modo async SQLite (DATABASE_URL=sqlite+aiosqlite:///path):
-        # el engine async maneja la BD principal, pero los routers sync
-        # siguen usando `app.state.db` con un SQLiteDatabase que apunta
-        # al MISMO archivo. Habilitamos WAL mode para que ambos motores
-        # (sqlite3 stdlib y aiosqlite) puedan leer/escribir concurrentes
-        # sin "database is locked". Esto resuelve la Deuda #1 (paths de
-        # BD desincronizados) sin necesidad de migrar 6 routers.
-        from app.db.session import get_engine  # noqa: PLC0415
+    # Estado de la app: inicializar el engine async. Ya no hay rama
+    # ``sqlite_legacy`` (Fase 5+); todo es async.
+    from app.db.session import get_engine  # noqa: PLC0415
 
-        get_engine()  # inicializa el singleton del AsyncEngine
-        # Resolver el path de la BD a partir de la URL
-        # `sqlite+aiosqlite:///path/to/db.db` -> `path/to/db.db`
-        from app.db.session import _extract_sqlite_path_from_url  # noqa: PLC0415
-
-        sqlite_path = _extract_sqlite_path_from_url(settings.database_url or "")
-        # legacy sync contra el mismo path. Si el path es :memory:,
-        # ambos (sync y async) usan :memory:.
-        app.state.db = create_database(sqlite_path)
-        app.state.async_engine_initialized = True
-    else:  # postgres
-        from app.db.session import get_engine  # noqa: PLC0415
-
-        # Modo Postgres: no hay legacy sync SQLite. Los routers sync
-        # legacy (auth/warehouses/products/etc.) no son compatibles con
-        # Postgres porque usan SQL crudo con `?` placeholders (sqlite3)
-        # en vez de `$1` (asyncpg). Mantenemos `app.state.db = None`
-        # y los routers sync daran error 503 hasta migrarlos a async.
-        # En Fase 5+ (cuando se complete la migracion), este caso
-        # dejara de existir.
-        get_engine()
-        app.state.db = None
-        app.state.async_engine_initialized = True
+    get_engine()
+    app.state.async_engine_initialized = True
+    # ``app.state.db`` se conserva como None por compat con tests
+    # que consultaban ``hasattr(app.state, "db")`` o similar. Los
+    # routers que lo necesitaban ya fueron migrados a ``get_session``.
+    app.state.db = None
 
     # Handlers de errores de dominio
     app.add_exception_handler(DomainError, domain_error_handler)

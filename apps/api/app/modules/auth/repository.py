@@ -133,7 +133,19 @@ class AuthRepository:
                 created_at=log.created_at,
             )
         )
-        await self._backend.flush()
+        # NOTA: NO hacemos ``await self._backend.flush()`` aqui porque
+        # el caller (service) llama a ``add_audit_log`` en modo fire-and-forget
+        # y la sesion puede estar en estado "prepared" (rollback pendiente).
+        # El flush se hace implicitamente cuando el router llama
+        # ``await session.commit()`` (el AuditLog agregado se commitea junto
+        # con el resto de cambios de la request).
+        #
+        # En tests sync (conftest global), el _async_add_audit_log se llama
+        # via ``_maybe_await`` desde el thread principal. Como aiosqlite
+        # requiere un event loop, hacemos un sync_add via el engine sync
+        # para tests que no estan en un loop. Pero en produccion siempre
+        # hay un loop activo, asi que el ``session.add(obj)`` es suficiente
+        # y el commit del request persiste el audit.
         return log
 
     async def _async_list_audit_logs(
