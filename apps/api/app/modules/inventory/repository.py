@@ -1,176 +1,145 @@
+"""
+Repository de inventory (async, SQLAlchemy 2.0).
+
+Operaciones sobre ``stock_levels`` (Nivel 1) e ``inventory_movements``
+(ledger) usando ``AsyncSession`` y los modelos ORM.
+
+R3/R4: las escrituras de ``quantity`` se hacen via ``MovementEngine``;
+este repository solo maneja lecturas y operaciones parametrizadas
+(``upsert_stock_parameters``) que NO modifican quantity.
+"""
+
 from __future__ import annotations
 
-import uuid  # noqa: F401  (usado en raw SQL via uuid.uuid4())
-from contextlib import AbstractContextManager
+import uuid
 from datetime import datetime
 from decimal import Decimal
-from uuid import UUID
 
-from app.db.session import InventoryMovementRecord, SQLiteDatabase, StockLevelRecord
-from app.modules.inventory.schemas import MovementType
-
-
-def _to_stock_level(row) -> StockLevelRecord:
-    return StockLevelRecord(
-        id=UUID(row["id"]),
-        warehouse_id=UUID(row["warehouse_id"]),
-        product_id=UUID(row["product_id"]),
-        quantity=Decimal(str(row["quantity"])),
-        min_quantity=Decimal(str(row["min_quantity"])),
-        max_quantity=Decimal(str(row["max_quantity"])) if row["max_quantity"] is not None else None,
-        updated_at=datetime.fromisoformat(row["updated_at"]),
-    )
-
-
-def _to_movement(row) -> InventoryMovementRecord:
-    return InventoryMovementRecord(
-        id=UUID(row["id"]),
-        warehouse_id=UUID(row["warehouse_id"]),
-        product_id=UUID(row["product_id"]),
-        movement_type=row["movement_type"],
-        quantity=Decimal(str(row["quantity"])),
-        reference_type=row["reference_type"],
-        reference_id=row["reference_id"],
-        notes=row["notes"],
-        created_at=datetime.fromisoformat(row["created_at"]),
-    )
+from app.db.models.inventory import InventoryMovement, MovementType, StockLevel
+from app.db.models.products import Product
+from app.db.models.warehouses import Warehouse
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class InventoryRepository:
-    def __init__(self, db: SQLiteDatabase) -> None:
-        self._db = db
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
 
-    def transaction(self) -> AbstractContextManager[SQLiteDatabase]:
-        return self._db.transaction()
+    # ----------------------------------------------------------------- READ
 
-    def get_stock_level(self, warehouse_id: UUID, product_id: UUID) -> StockLevelRecord | None:
-        row = self._db.query_one(
-            "SELECT * FROM stock_levels WHERE warehouse_id = ? AND product_id = ?",
-            (str(warehouse_id), str(product_id)),
+    async def get_stock_level(
+        self, warehouse_id: uuid.UUID, product_id: uuid.UUID
+    ) -> StockLevel | None:
+        stmt = select(StockLevel).where(
+            StockLevel.warehouse_id == warehouse_id,
+            StockLevel.product_id == product_id,
         )
-        return _to_stock_level(row) if row is not None else None
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
-    def upsert_stock_level(self, stock_level: StockLevelRecord) -> StockLevelRecord:
-        self._db.execute(
-            """
-            INSERT INTO stock_levels (
-                id, warehouse_id, product_id, quantity, min_quantity, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(warehouse_id, product_id) DO UPDATE SET
-                id = excluded.id,
-                quantity = excluded.quantity,
-                min_quantity = excluded.min_quantity,
-                updated_at = excluded.updated_at
-            """,
-            (
-                str(stock_level.id),
-                str(stock_level.warehouse_id),
-                str(stock_level.product_id),
-                str(stock_level.quantity),
-                str(stock_level.min_quantity),
-                stock_level.updated_at.isoformat(),
-            ),
-        )
-        return stock_level
-
-    def list_stock_levels(
+    async def list_stock_levels(
         self,
-        warehouse_id: UUID | None = None,
-        product_id: UUID | None = None,
-    ) -> list[StockLevelRecord]:
-        clauses = []
-        params: list[str] = []
+        warehouse_id: uuid.UUID | None = None,
+        product_id: uuid.UUID | None = None,
+    ) -> list[StockLevel]:
+        stmt = select(StockLevel)
         if warehouse_id is not None:
-            clauses.append("warehouse_id = ?")
-            params.append(str(warehouse_id))
+            stmt = stmt.where(StockLevel.warehouse_id == warehouse_id)
         if product_id is not None:
-            clauses.append("product_id = ?")
-            params.append(str(product_id))
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = self._db.query_all(f"SELECT * FROM stock_levels {where}", tuple(params))  # noqa: S608
-        return [_to_stock_level(row) for row in rows]
+            stmt = stmt.where(StockLevel.product_id == product_id)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
-    def add_movement(self, movement: InventoryMovementRecord) -> InventoryMovementRecord:
-        self._db.execute(
-            """
-            INSERT INTO inventory_movements (
-                id, warehouse_id, product_id, movement_type, quantity,
-                reference_type, reference_id, notes, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(movement.id),
-                str(movement.warehouse_id),
-                str(movement.product_id),
-                movement.movement_type,
-                str(movement.quantity),
-                movement.reference_type,
-                movement.reference_id,
-                movement.notes,
-                movement.created_at.isoformat(),
-            ),
-        )
+    async def list_stock_levels_with_joins(
+        self,
+        warehouse_id: uuid.UUID | None = None,
+        product_id: uuid.UUID | None = None,
+    ) -> list[tuple[StockLevel, Warehouse, Product]]:
+        """JOIN con warehouses y products. Usado por list_stock / get_summary."""
+        stmt = select(StockLevel, Warehouse, Product).join(
+            Warehouse, StockLevel.warehouse_id == Warehouse.id
+        ).join(Product, StockLevel.product_id == Product.id)
+        if warehouse_id is not None:
+            stmt = stmt.where(StockLevel.warehouse_id == warehouse_id)
+        if product_id is not None:
+            stmt = stmt.where(StockLevel.product_id == product_id)
+        stmt = stmt.order_by(Warehouse.code, Product.sku)
+        result = await self._session.execute(stmt)
+        return [(sl, w, p) for sl, w, p in result.all()]
+
+    async def add_movement(self, movement: InventoryMovement) -> InventoryMovement:
+        self._session.add(movement)
+        await self._session.flush()
         return movement
 
-    def list_movements(
+    async def list_movements(
         self,
-        warehouse_id: UUID | None = None,
-        product_id: UUID | None = None,
+        warehouse_id: uuid.UUID | None = None,
+        product_id: uuid.UUID | None = None,
         movement_type: MovementType | None = None,
         created_from: datetime | None = None,
         created_to: datetime | None = None,
-    ) -> list[InventoryMovementRecord]:
-        clauses = []
-        params: list[str] = []
+    ) -> list[tuple[InventoryMovement, Warehouse, Product]]:
+        """JOIN con warehouses y products para incluir sku/warehouse_code."""
+        stmt = (
+            select(InventoryMovement, Warehouse, Product)
+            .join(Warehouse, InventoryMovement.warehouse_id == Warehouse.id)
+            .join(Product, InventoryMovement.product_id == Product.id)
+        )
         if warehouse_id is not None:
-            clauses.append("warehouse_id = ?")
-            params.append(str(warehouse_id))
+            stmt = stmt.where(InventoryMovement.warehouse_id == warehouse_id)
         if product_id is not None:
-            clauses.append("product_id = ?")
-            params.append(str(product_id))
+            stmt = stmt.where(InventoryMovement.product_id == product_id)
         if movement_type is not None:
-            clauses.append("movement_type = ?")
-            params.append(movement_type.value)
+            stmt = stmt.where(InventoryMovement.movement_type == movement_type)
         if created_from is not None:
-            clauses.append("created_at >= ?")
-            params.append(created_from.isoformat())
+            stmt = stmt.where(InventoryMovement.created_at >= created_from)
         if created_to is not None:
-            clauses.append("created_at <= ?")
-            params.append(created_to.isoformat())
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = self._db.query_all(
-            f"SELECT * FROM inventory_movements {where} ORDER BY created_at DESC",  # noqa: S608
-            tuple(params),
+            stmt = stmt.where(InventoryMovement.created_at <= created_to)
+        stmt = stmt.order_by(InventoryMovement.created_at.desc())
+        result = await self._session.execute(stmt)
+        return [(m, w, p) for m, w, p in result.all()]
+
+    async def count_stock_records(self) -> int:
+        stmt = select(func.count(StockLevel.id))
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one() or 0)
+
+    async def count_movements(self) -> int:
+        stmt = select(func.count(InventoryMovement.id))
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one() or 0)
+
+    async def count_low_stock_alerts(self) -> int:
+        stmt = select(func.count(StockLevel.id)).where(
+            StockLevel.min_quantity > 0,
+            StockLevel.quantity <= StockLevel.min_quantity,
         )
-        return [_to_movement(row) for row in rows]
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one() or 0)
 
-    def count_stock_records(self) -> int:
-        row = self._db.query_one("SELECT COUNT(*) AS total FROM stock_levels")
-        return int(row["total"]) if row is not None else 0
+    async def count_warehouses(self) -> int:
+        from app.db.models.warehouses import Warehouse
+        stmt = select(func.count(Warehouse.id))
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one() or 0)
 
-    def count_movements(self) -> int:
-        row = self._db.query_one("SELECT COUNT(*) AS total FROM inventory_movements")
-        return int(row["total"]) if row is not None else 0
-
-    def count_low_stock_alerts(self) -> int:
-        row = self._db.query_one(
-            """
-            SELECT COUNT(*) AS total
-            FROM stock_levels
-            WHERE min_quantity > 0 AND quantity <= min_quantity
-            """
-        )
-        return int(row["total"]) if row is not None else 0
+    async def count_products(self) -> int:
+        from app.db.models.products import Product
+        stmt = select(func.count(Product.id))
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one() or 0)
 
     # -------------------------------------------------------- Fase 8: params
 
-    def upsert_stock_parameters(
+    async def upsert_stock_parameters(
         self,
-        warehouse_id: UUID,
-        product_id: UUID,
+        warehouse_id: uuid.UUID,
+        product_id: uuid.UUID,
         min_quantity: Decimal,
         max_quantity: Decimal | None,
-    ) -> None:
+    ) -> StockLevel:
         """Crea o actualiza la tupla ``(min, max)`` de un stock_level.
 
         - Si la fila existe, actualiza ``min_quantity``, ``max_quantity`` y
@@ -180,25 +149,23 @@ class InventoryRepository:
         No verifica existencia de warehouse/product: eso es responsabilidad
         del service (que ya tiene el contexto de error de dominio).
         """
-        from app.db.session import utcnow  # noqa: PLC0415
-
-        now = utcnow().isoformat()
-        self._db.execute(
-            """
-            INSERT INTO stock_levels (
-                id, warehouse_id, product_id, quantity, min_quantity, max_quantity, updated_at
-            ) VALUES (?, ?, ?, 0, ?, ?, ?)
-            ON CONFLICT(warehouse_id, product_id) DO UPDATE SET
-                min_quantity = excluded.min_quantity,
-                max_quantity = excluded.max_quantity,
-                updated_at = excluded.updated_at
-            """,
-            (
-                str(uuid.uuid4()),
-                str(warehouse_id),
-                str(product_id),
-                str(min_quantity),
-                str(max_quantity) if max_quantity is not None else None,
-                now,
-            ),
+        existing = await self.get_stock_level(warehouse_id, product_id)
+        if existing is not None:
+            existing.min_quantity = min_quantity
+            existing.max_quantity = max_quantity
+            await self._session.flush()
+            return existing
+        new_row = StockLevel(
+            id=uuid.uuid4(),
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            quantity=Decimal("0"),
+            min_quantity=min_quantity,
+            max_quantity=max_quantity,
         )
+        self._session.add(new_row)
+        await self._session.flush()
+        return new_row
+
+
+__all__ = ["InventoryRepository"]

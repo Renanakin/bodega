@@ -13,6 +13,11 @@ Cubre:
 - Token expirado/manipulado rechazado.
 - Login con usuario inactivo (is_active=0) → 401.
 - /auth/me no restringe por rol (admin, supervisor, etc. → 200).
+
+FIX BUG-002: el ``AuthRepository`` ahora es híbrido — soporta tanto
+``SQLiteDatabase`` legacy (modo tests con ``db_path``) como ``AsyncSession``
+(modo producción con Postgres/SQLite async). El test sigue usando el
+modo legacy para compatibilidad con el resto de la suite.
 """
 
 from __future__ import annotations
@@ -40,10 +45,7 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
 
 
 class AuthLoginTestCase(unittest.TestCase):
-    """Tests de /auth/login y /auth/logout.
-
-    Cada test crea su propio setUp mínimo (1 admin con password "demo123").
-    """
+    """Tests de /auth/login y /auth/logout."""
 
     def setUp(self) -> None:
         self.app = create_app(db_path=":memory:")
@@ -71,8 +73,6 @@ class AuthLoginTestCase(unittest.TestCase):
             ),
         )
 
-    # --- /auth/login ---
-
     def test_login_valid_credentials_returns_token(self) -> None:
         response = _login(self.client, "admin", "demo123")
         self.assertEqual(response.status_code, 200)
@@ -86,7 +86,6 @@ class AuthLoginTestCase(unittest.TestCase):
         response = _login(self.client, "admin", "wrong-password")
         self.assertEqual(response.status_code, 401)
         detail = response.json()["detail"]
-        # Envelope de DomainError → {"code", "message"}.
         self.assertEqual(detail["code"], "invalid_credentials")
 
     def test_login_nonexistent_user_returns_401(self) -> None:
@@ -95,22 +94,18 @@ class AuthLoginTestCase(unittest.TestCase):
         self.assertEqual(response.json()["detail"]["code"], "invalid_credentials")
 
     def test_login_invalid_body_returns_422(self) -> None:
-        # Sin password.
         no_pw = self.client.post(
             "/api/v1/auth/login", json={"username": "admin"}
         )
         self.assertEqual(no_pw.status_code, 422)
-        # Sin username.
         no_user = self.client.post(
             "/api/v1/auth/login", json={"password": "demo123"}
         )
         self.assertEqual(no_user.status_code, 422)
-        # Body vacío.
         empty = self.client.post("/api/v1/auth/login", json={})
         self.assertEqual(empty.status_code, 422)
 
     def test_login_inactive_user_rejected(self) -> None:
-        # Re-crear el admin con is_active=0.
         self.app.state.db.close()
         self.app = create_app(db_path=":memory:")
         self.client = TestClient(self.app)
@@ -121,24 +116,18 @@ class AuthLoginTestCase(unittest.TestCase):
         self.assertEqual(response.json()["detail"]["code"], "invalid_credentials")
 
     def test_login_trims_and_lowercases_username(self) -> None:
-        # La spec dice que el username se normaliza (strip + lower) en el service.
-        # Esto verifica que "  Admin  " sigue matcheando al admin real.
         response = _login(self.client, "  Admin  ", "demo123")
         self.assertEqual(response.status_code, 200)
         self.assertIn("token", response.json())
 
-    # --- /auth/logout ---
-
     def test_logout_invalidates_token(self) -> None:
         headers = _auth_headers(self.client)
-        # Antes del logout, /me funciona.
         me_before = self.client.get("/api/v1/auth/me", headers=headers)
         self.assertEqual(me_before.status_code, 200)
 
         logout_resp = self.client.post("/api/v1/auth/logout", headers=headers)
         self.assertEqual(logout_resp.status_code, 204)
 
-        # Después del logout, el mismo token ya no sirve.
         me_after = self.client.get("/api/v1/auth/me", headers=headers)
         self.assertEqual(me_after.status_code, 401)
         self.assertEqual(
@@ -146,8 +135,6 @@ class AuthLoginTestCase(unittest.TestCase):
         )
 
     def test_logout_without_token_returns_204(self) -> None:
-        # El service es tolerante: si no hay token, no hace nada y retorna 204.
-        # (El handler no falla; ver service.logout().)
         response = self.client.post("/api/v1/auth/logout")
         self.assertEqual(response.status_code, 204)
 
@@ -159,7 +146,6 @@ class AuthMeTestCase(unittest.TestCase):
         self.app = create_app(db_path=":memory:")
         self.client = TestClient(self.app)
         now = utcnow().isoformat()
-        # admin con role admin.
         self.admin_id = str(uuid4())
         self.app.state.db.execute(
             """
@@ -175,7 +161,6 @@ class AuthMeTestCase(unittest.TestCase):
                 now,
             ),
         )
-        # supervisor (rol distinto) para validar que /me no restringe.
         self.supervisor_id = str(uuid4())
         self.app.state.db.execute(
             """
@@ -192,7 +177,6 @@ class AuthMeTestCase(unittest.TestCase):
             ),
         )
         self.admin_headers = _auth_headers(self.client)
-        # Token de juan.
         resp = _login(self.client, "juan", "demo123")
         self.supervisor_headers = {
             "Authorization": f"Bearer {resp.json()['token']}"
@@ -229,13 +213,11 @@ class AuthMeTestCase(unittest.TestCase):
         )
 
     def test_me_with_malformed_authorization_header_returns_401(self) -> None:
-        # Sin prefijo "Bearer ".
         response = self.client.get(
             "/api/v1/auth/me",
             headers={"Authorization": "Token abc"},
         )
         self.assertEqual(response.status_code, 401)
-        # Vacío.
         response2 = self.client.get(
             "/api/v1/auth/me",
             headers={"Authorization": ""},
@@ -243,8 +225,6 @@ class AuthMeTestCase(unittest.TestCase):
         self.assertEqual(response2.status_code, 401)
 
     def test_me_does_not_restrict_by_role(self) -> None:
-        # /auth/me expone user actual sin filtrar por rol.
-        # Tanto admin como supervisor pueden usarlo.
         admin_resp = self.client.get(
             "/api/v1/auth/me", headers=self.admin_headers
         )

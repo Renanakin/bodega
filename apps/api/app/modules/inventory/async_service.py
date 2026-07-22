@@ -1,13 +1,18 @@
 """
-InventoryService async (Fase 3): usa MovementEngine.
+InventoryService async (Fase 3+): usa MovementEngine, sin SQLiteDatabase legacy.
 
-Este servicio es la VERSIÓN ASYNC del InventoryService legacy.
-Se usa en nuevos endpoints / cuando el caller tenga AsyncSession.
-El legacy `service.py` (sync) sigue existiendo para compat con código
-existente y se depreca gradualmente en Fases 4-5.
+Esta es la VERSION ASYNC del InventoryService. Toda escritura de stock
+pasa por ``MovementEngine`` (Regla R4: único punto de escritura de
+``stock_levels``). El legacy ``service.py`` (sync) se eliminó en la
+migración a ``Depends(get_session)``.
 
-Regla R4: el service no llama a db.execute ni db.query directamente.
-Toda la escritura de stock pasa por MovementEngine.
+API pública:
+- ``register_movement`` (escribe via MovementEngine)
+- ``list_stock`` (JOIN stock_levels + warehouses + products)
+- ``get_stock`` / ``get_stock_with_lock`` (lectura directa del modelo)
+- ``list_movements`` (JOIN inventory_movements + warehouses + products)
+- ``get_summary`` (counts agregados para /inventory/summary)
+- ``upsert_stock_parameters`` (Fase 8: parametrización min/max por bodega x producto)
 """
 
 from __future__ import annotations
@@ -19,16 +24,16 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from app.core.logging import get_logger
-from app.db.models.inventory import StockLevel
+from app.db.models.inventory import InventoryMovement, MovementType, StockLevel
 from app.db.models.products import Product
 from app.db.models.warehouses import Warehouse
+from app.modules.inventory.repository import InventoryRepository
 from app.shared.movement_engine import MovementEngine, MovementRequest, MovementResult
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
-    from app.modules.inventory.schemas import MovementType
-
+    from app.modules.inventory.schemas import MovementType as MovementTypeSchema
 
 log = get_logger(__name__)
 
@@ -43,19 +48,64 @@ class StockLevelView:
     product_name: str
     quantity: Decimal
     min_quantity: Decimal
+    max_quantity: Decimal | None
     updated_at: datetime
 
 
+@dataclass(slots=True)
+class InventoryMovementView:
+    id: uuid.UUID
+    warehouse_id: uuid.UUID
+    warehouse_code: str
+    product_id: uuid.UUID
+    product_sku: str
+    movement_type: MovementType
+    quantity: Decimal
+    reference_type: str | None
+    reference_id: str | None
+    notes: str | None
+    created_at: datetime
+
+
+@dataclass(slots=True)
+class StockParametersView:
+    """Vista de los parámetros de un (producto, bodega) específico (Fase 8)."""
+
+    id: uuid.UUID
+    warehouse_id: uuid.UUID
+    warehouse_code: str
+    product_id: uuid.UUID
+    product_sku: str
+    quantity: Decimal
+    min_quantity: Decimal
+    max_quantity: Decimal | None
+    updated_at: datetime
+
+
+@dataclass(slots=True)
+class InventorySummaryView:
+    """Resumen del estado del inventario (para /inventory/summary)."""
+
+    warehouses: int
+    products: int
+    stock_records: int
+    movements: int
+    low_stock_alerts: int
+
+
 class InventoryServiceAsync:
-    """
-    InventoryService versión async (Fase 3+).
+    """InventoryService versión async (Fase 3+)."""
 
-    Toda escritura de stock pasa por MovementEngine.
-    Las lecturas son queries directos al modelo SQLAlchemy.
-    """
-
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        repository: InventoryRepository | None = None,
+    ) -> None:
         self._session = session
+        self._repository = repository or InventoryRepository(session)
+        self._movement = MovementEngine(session)
+
+    # ====================================================== REGISTER MOVEMENT
 
     async def register_movement(
         self,
@@ -69,26 +119,8 @@ class InventoryServiceAsync:
         notes: str | None = None,
         user_id: uuid.UUID | None = None,
     ) -> MovementResult:
-        """Registra un movimiento de stock usando MovementEngine.
-
-        Args:
-            warehouse_id: bodega afectada.
-            product_id: producto afectado.
-            movement_type: in, out, adjustment_in, adjustment_out.
-            quantity: cantidad del movimiento (siempre > 0).
-            reference_type: tipo de referencia (e.g. "transfer", "purchase").
-            reference_id: ID externo de la referencia.
-            notes: nota libre.
-            user_id: usuario que ejecuta (para audit).
-
-        Returns:
-            MovementResult con previous/new quantity y delta.
-
-        Raises:
-            WarehouseNotFoundError, ProductNotFoundError, InsufficientStockError.
-        """
-        engine = MovementEngine(self._session)
-        result = await engine.apply(
+        """Registra un movimiento de stock usando MovementEngine."""
+        result = await self._movement.apply(
             MovementRequest(
                 warehouse_id=warehouse_id,
                 product_id=product_id,
@@ -103,46 +135,50 @@ class InventoryServiceAsync:
         await self._session.commit()
         return result
 
+    # ============================================================ LIST STOCK
+
     async def list_stock(
         self,
         warehouse_id: uuid.UUID | None = None,
         product_id: uuid.UUID | None = None,
         sku: str | None = None,
     ) -> list[StockLevelView]:
-        """Lista stock con JOIN a warehouses y products."""
-        stmt = (
-            select(StockLevel, Warehouse, Product)
-            .join(Warehouse, StockLevel.warehouse_id == Warehouse.id)
-            .join(Product, StockLevel.product_id == Product.id)
-        )
+        """Lista stock con JOIN a warehouses y products.
 
-        if warehouse_id is not None:
-            stmt = stmt.where(StockLevel.warehouse_id == warehouse_id)
-        if product_id is not None:
-            stmt = stmt.where(StockLevel.product_id == product_id)
+        Si ``sku`` viene, primero resuelve el product_id y filtra
+        (evita listar stock de productos inactivos o sin match).
+        """
+        resolved_product_id: uuid.UUID | None = product_id
+        filter_matches = True
         if sku is not None:
-            stmt = stmt.where(Product.sku == sku.strip().upper())
+            stmt = select(Product).where(Product.sku == sku.strip().upper())
+            product = (await self._session.execute(stmt)).scalar_one_or_none()
+            if product is None:
+                filter_matches = False
+            else:
+                resolved_product_id = product.id
 
-        stmt = stmt.order_by(Warehouse.code, Product.sku)
-        result = await self._session.execute(stmt)
-        rows = result.all()
+        if not filter_matches:
+            return []
 
-        views: list[StockLevelView] = []
-        for stock, wh, prod in rows:
-            views.append(
-                StockLevelView(
-                    warehouse_id=stock.warehouse_id,
-                    warehouse_code=wh.code,
-                    warehouse_name=wh.name,
-                    product_id=stock.product_id,
-                    product_sku=prod.sku,
-                    product_name=prod.name,
-                    quantity=stock.quantity,
-                    min_quantity=stock.min_quantity,
-                    updated_at=stock.updated_at,
-                )
+        rows = await self._repository.list_stock_levels_with_joins(
+            warehouse_id=warehouse_id, product_id=resolved_product_id
+        )
+        return [
+            StockLevelView(
+                warehouse_id=sl.warehouse_id,
+                warehouse_code=w.code,
+                warehouse_name=w.name,
+                product_id=sl.product_id,
+                product_sku=p.sku,
+                product_name=p.name,
+                quantity=sl.quantity,
+                min_quantity=sl.min_quantity,
+                max_quantity=sl.max_quantity,
+                updated_at=sl.updated_at,
             )
-        return views
+            for sl, w, p in rows
+        ]
 
     async def get_stock(
         self,
@@ -150,12 +186,7 @@ class InventoryServiceAsync:
         product_id: uuid.UUID,
     ) -> StockLevel | None:
         """Lee el stock actual de (warehouse, product) SIN lock."""
-        stmt = select(StockLevel).where(
-            StockLevel.warehouse_id == warehouse_id,
-            StockLevel.product_id == product_id,
-        )
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        return await self._repository.get_stock_level(warehouse_id, product_id)
 
     async def get_stock_with_lock(
         self,
@@ -177,3 +208,127 @@ class InventoryServiceAsync:
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    # ============================================================ MOVEMENTS
+
+    async def list_movements(
+        self,
+        warehouse_id: uuid.UUID | None = None,
+        product_id: uuid.UUID | None = None,
+        sku: str | None = None,
+        movement_type: MovementType | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> list[InventoryMovementView]:
+        """Lista movements con JOIN a warehouses y products."""
+        resolved_product_id: uuid.UUID | None = product_id
+        if sku is not None:
+            stmt = select(Product).where(Product.sku == sku.strip().upper())
+            product = (await self._session.execute(stmt)).scalar_one_or_none()
+            if product is None:
+                return []
+            resolved_product_id = product.id
+
+        rows = await self._repository.list_movements(
+            warehouse_id=warehouse_id,
+            product_id=resolved_product_id,
+            movement_type=movement_type,
+            created_from=created_from,
+            created_to=created_to,
+        )
+        return [
+            InventoryMovementView(
+                id=m.id,
+                warehouse_id=m.warehouse_id,
+                warehouse_code=w.code,
+                product_id=m.product_id,
+                product_sku=p.sku,
+                movement_type=m.movement_type,
+                quantity=m.quantity,
+                reference_type=m.reference_type,
+                reference_id=m.reference_id,
+                notes=m.notes,
+                created_at=m.created_at,
+            )
+            for m, w, p in rows
+        ]
+
+    # ============================================================ SUMMARY
+
+    async def get_summary(self) -> InventorySummaryView:
+        return InventorySummaryView(
+            warehouses=await self._repository.count_warehouses(),
+            products=await self._repository.count_products(),
+            stock_records=await self._repository.count_stock_records(),
+            movements=await self._repository.count_movements(),
+            low_stock_alerts=await self._repository.count_low_stock_alerts(),
+        )
+
+    # ====================================================== STOCK PARAMETERS (Fase 8)
+
+    async def upsert_stock_parameters(
+        self,
+        *,
+        warehouse_id: uuid.UUID,
+        product_id: uuid.UUID,
+        min_quantity: Decimal,
+        max_quantity: Decimal | None,
+    ) -> StockParametersView:
+        """Crea o actualiza ``(min, max)`` para (product, warehouse).
+
+        Reglas:
+        - max >= min (sino InvalidStockParameterError).
+        - warehouse y product deben existir (sino 404).
+        - Devuelve la vista final con sku/cantidad actual.
+        """
+        from app.core.errors import (
+            InvalidStockParameterError,
+            ProductNotFoundError,
+            WarehouseNotFoundError,
+        )
+        from app.modules.products.repository import ProductRepository
+        from app.modules.warehouses.repository import WarehouseRepository
+
+        if max_quantity is not None and max_quantity < min_quantity:
+            raise InvalidStockParameterError(min_quantity, max_quantity)
+
+        warehouses = WarehouseRepository(self._session)
+        products = ProductRepository(self._session)
+        if await warehouses.get_by_id(warehouse_id) is None:
+            raise WarehouseNotFoundError(str(warehouse_id))
+        if await products.get_by_id(product_id) is None:
+            raise ProductNotFoundError(str(product_id))
+
+        sl = await self._repository.upsert_stock_parameters(
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            min_quantity=min_quantity,
+            max_quantity=max_quantity,
+        )
+        await self._session.commit()
+        await self._session.refresh(sl)
+        # Necesitamos el warehouse_code y product_sku para la vista.
+        wh = await warehouses.get_by_id(warehouse_id)
+        prod = await products.get_by_id(product_id)
+        assert wh is not None  # ya validado arriba
+        assert prod is not None
+        return StockParametersView(
+            id=sl.id,
+            warehouse_id=sl.warehouse_id,
+            warehouse_code=wh.code,
+            product_id=sl.product_id,
+            product_sku=prod.sku,
+            quantity=sl.quantity,
+            min_quantity=sl.min_quantity,
+            max_quantity=sl.max_quantity,
+            updated_at=sl.updated_at,
+        )
+
+
+__all__ = [
+    "InventoryServiceAsync",
+    "StockLevelView",
+    "InventoryMovementView",
+    "StockParametersView",
+    "InventorySummaryView",
+]

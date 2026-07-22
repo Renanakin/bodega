@@ -1,11 +1,29 @@
-from datetime import datetime
+"""
+Router de inventory (async, FastAPI Depends(get_session)).
+
+Endpoints:
+- ``GET    /api/v1/inventory/stock``                  — lista stock_levels
+- ``GET    /api/v1/inventory/movements``              — lista inventory_movements
+- ``POST   /api/v1/inventory/movements``              — registra un movimiento (MovementEngine)
+- ``GET    /api/v1/inventory/summary``                — counts agregados
+- ``PUT    /api/v1/inventory/parametros/{producto_id}/{bodega_id}``  — upsert min/max
+
+Convenciones:
+- ``session: AsyncSession = Depends(get_session)``.
+- Funciones ``async def``.
+- Audit via ``app.core.audit.record_audit`` (best-effort).
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
 from uuid import UUID
 
-from app.db.session import SQLiteDatabase, get_database
+from app.core.audit import record_audit
+from app.db.session import get_session
 from app.modules.auth.dependencies import require_roles
-from app.modules.auth.repository import AuthRepository
 from app.modules.auth.router import get_current_user
-from app.modules.auth.service import AuthService
+from app.modules.inventory.async_service import InventoryServiceAsync
 from app.modules.inventory.repository import InventoryRepository
 from app.modules.inventory.schemas import (
     InventoryMovementCreate,
@@ -16,39 +34,48 @@ from app.modules.inventory.schemas import (
     StockParametersResponse,
     StockParametersUpsert,
 )
-from app.modules.inventory.service import InventoryService
-from app.modules.products.repository import ProductRepository
-from app.modules.warehouses.repository import WarehouseRepository
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
 
-def get_inventory_service(db: SQLiteDatabase = Depends(get_database)) -> InventoryService:
-    return InventoryService(
-        inventory_repository=InventoryRepository(db),
-        warehouse_repository=WarehouseRepository(db),
-        product_repository=ProductRepository(db),
-    )
-
-
-def get_auth_service(db: SQLiteDatabase = Depends(get_database)) -> AuthService:
-    return AuthService(AuthRepository(db))
+def get_inventory_service(
+    session: AsyncSession = Depends(get_session),
+) -> InventoryServiceAsync:
+    return InventoryServiceAsync(session, InventoryRepository(session))
 
 
 @router.get("/stock", response_model=list[StockLevelResponse])
-def list_stock_levels(
+async def list_stock_levels(
     warehouse_id: UUID | None = None,
     product_id: UUID | None = None,
     sku: str | None = Query(default=None, max_length=80),
     _: object = Depends(get_current_user),
-    service: InventoryService = Depends(get_inventory_service),
+    service: InventoryServiceAsync = Depends(get_inventory_service),
 ) -> list[StockLevelResponse]:
-    return service.list_stock(warehouse_id=warehouse_id, product_id=product_id, sku=sku)
+    views = await service.list_stock(
+        warehouse_id=warehouse_id, product_id=product_id, sku=sku
+    )
+    return [
+        StockLevelResponse(
+            warehouse_id=v.warehouse_id,
+            warehouse_code=v.warehouse_code,
+            warehouse_name=v.warehouse_name,
+            product_id=v.product_id,
+            product_sku=v.product_sku,
+            product_name=v.product_name,
+            quantity=v.quantity,
+            min_quantity=v.min_quantity,
+            max_quantity=v.max_quantity,
+            updated_at=v.updated_at,
+        )
+        for v in views
+    ]
 
 
 @router.get("/movements", response_model=list[InventoryMovementResponse])
-def list_movements(
+async def list_movements(
     warehouse_id: UUID | None = None,
     product_id: UUID | None = None,
     sku: str | None = Query(default=None, max_length=80),
@@ -56,9 +83,9 @@ def list_movements(
     created_from: datetime | None = None,
     created_to: datetime | None = None,
     _: object = Depends(get_current_user),
-    service: InventoryService = Depends(get_inventory_service),
+    service: InventoryServiceAsync = Depends(get_inventory_service),
 ) -> list[InventoryMovementResponse]:
-    return service.list_movements(
+    views = await service.list_movements(
         warehouse_id=warehouse_id,
         product_id=product_id,
         sku=sku,
@@ -66,68 +93,132 @@ def list_movements(
         created_from=created_from,
         created_to=created_to,
     )
+    return [
+        InventoryMovementResponse(
+            id=v.id,
+            warehouse_id=v.warehouse_id,
+            warehouse_code=v.warehouse_code,
+            product_id=v.product_id,
+            product_sku=v.product_sku,
+            movement_type=v.movement_type,
+            quantity=v.quantity,
+            reference_type=v.reference_type,
+            reference_id=v.reference_id,
+            notes=v.notes,
+            created_at=v.created_at,
+        )
+        for v in views
+    ]
 
 
 @router.post(
-    "/movements", response_model=InventoryMovementResponse, status_code=status.HTTP_201_CREATED
+    "/movements",
+    response_model=InventoryMovementResponse,
+    status_code=status.HTTP_201_CREATED,
 )
-def register_movement(
+async def register_movement(
     payload: InventoryMovementCreate,
     user=Depends(require_roles("admin", "supervisor", "origin_operator", "destination_operator")),
-    service: InventoryService = Depends(get_inventory_service),
-    auth_service: AuthService = Depends(get_auth_service),
+    service: InventoryServiceAsync = Depends(get_inventory_service),
 ) -> InventoryMovementResponse:
-    movement = service.register_movement(payload)
-    auth_service.audit(
+    """Registra un movimiento via MovementEngine.
+
+    Devuelve la vista del movimiento creado (con su warehouse_code y
+    product_sku) para que el cliente no necesite un GET adicional.
+    """
+    result = await service.register_movement(
+        warehouse_id=payload.warehouse_id,
+        product_id=payload.product_id,
+        movement_type=payload.movement_type,
+        quantity=payload.quantity,
+        reference_type=payload.reference_type,
+        reference_id=payload.reference_id,
+        notes=payload.notes,
+        user_id=user.id,
+    )
+    # Construir la vista a partir del result + el último movement registrado.
+    # MovementEngine no retorna la vista completa; consultamos la lista
+    # actualizada (1 sola fila con el id que devolvió el engine).
+    movements = await service.list_movements(product_id=payload.product_id)
+    matching = next((m for m in movements if m.id == result.movement_id), None)
+    if matching is None:
+        # Fallback: si no lo encontramos, construimos con los datos disponibles.
+        from app.db.models.products import Product
+        from app.db.models.warehouses import Warehouse
+        from app.modules.products.repository import ProductRepository
+        from app.modules.warehouses.repository import WarehouseRepository
+
+        wh = await WarehouseRepository(service._session).get_by_id(result.warehouse_id)
+        pr = await ProductRepository(service._session).get_by_id(result.product_id)
+        wh_code = wh.code if wh else ""
+        pr_sku = pr.sku if pr else ""
+    else:
+        wh_code = matching.warehouse_code
+        pr_sku = matching.product_sku
+    await record_audit(
         user_id=user.id,
         action="inventory.movement.create",
         entity_type="inventory_movement",
-        entity_id=str(movement.id),
-        detail=f"Movimiento {movement.movement_type} de {movement.product_sku}",
+        entity_id=str(result.movement_id),
+        detail=f"Movimiento {payload.movement_type.value} de {pr_sku}",
     )
-    return movement
+    return InventoryMovementResponse(
+        id=result.movement_id,
+        warehouse_id=result.warehouse_id,
+        warehouse_code=wh_code,
+        product_id=result.product_id,
+        product_sku=pr_sku,
+        movement_type=payload.movement_type,
+        quantity=result.delta,  # delta es el cambio aplicado (puede ser negativo)
+        reference_type=payload.reference_type,
+        reference_id=payload.reference_id,
+        notes=payload.notes,
+        created_at=datetime.now(UTC),
+    )
 
 
 @router.get("/summary", response_model=InventorySummaryResponse)
-def inventory_summary(
+async def inventory_summary(
     _: object = Depends(get_current_user),
-    service: InventoryService = Depends(get_inventory_service),
+    service: InventoryServiceAsync = Depends(get_inventory_service),
 ) -> InventorySummaryResponse:
-    return service.get_summary()
+    view = await service.get_summary()
+    return InventorySummaryResponse(
+        warehouses=view.warehouses,
+        products=view.products,
+        stock_records=view.stock_records,
+        movements=view.movements,
+        low_stock_alerts=view.low_stock_alerts,
+    )
 
 
-# --- Fase 8: parametrizacion por bodega x producto ---
+# --- Fase 8: parametrización por bodega x producto ---
 
 
 @router.put(
     "/parametros/{producto_id}/{bodega_id}",
     response_model=StockParametersResponse,
 )
-def upsert_stock_parameters(
+async def upsert_stock_parameters(
     producto_id: UUID,
     bodega_id: UUID,
     payload: StockParametersUpsert,
     user=Depends(require_roles("admin", "supervisor")),
-    service: InventoryService = Depends(get_inventory_service),
-    auth_service: AuthService = Depends(get_auth_service),
+    service: InventoryServiceAsync = Depends(get_inventory_service),
 ) -> StockParametersResponse:
-    """Crea o actualiza los parametros ``(min, max)`` de un (producto, bodega).
-
-    Usado por ``ReplenishmentRuleForm`` (Fase 8) para que el bodeguero central
-    pueda parametrizar las reglas de reabastecimiento desde la UI sin tocar
-    la BD.
+    """Crea o actualiza los parámetros ``(min, max)`` de un (producto, bodega).
 
     Restricciones:
     - max >= min (422 invalid_stock_parameter).
     - warehouse/product deben existir (404).
     """
-    view = service.upsert_stock_parameters(
+    view = await service.upsert_stock_parameters(
         warehouse_id=bodega_id,
         product_id=producto_id,
         min_quantity=payload.stock_minimo,
         max_quantity=payload.stock_maximo,
     )
-    auth_service.audit(
+    await record_audit(
         user_id=user.id,
         action="inventory.parameters.upsert",
         entity_type="stock_level",

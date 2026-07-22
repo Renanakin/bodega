@@ -364,16 +364,18 @@ class TestEmailOutbox:
     @pytest.mark.asyncio
     @pytest.mark.skipif(
         not _is_postgres(),
-        reason="CHECK constraint en SQLite async es limitado; test válido en Postgres",
+        reason="CHECK constraint de status se valida en Postgres (BD real)",
     )
     async def test_email_invalid_status_rejected(
         self,
         async_engine_postgres,  # type: ignore[no-untyped-def]
         async_session_postgres,  # type: ignore[no-untyped-def]
     ) -> None:
-        """BUG CONOCIDO: el modelo EmailOutbox NO define CheckConstraint para `status`
-        (ver ``app/db/models/ordenes_compra.py``). El test documenta el bug y queda
-        marcado como xfail hasta que se agregue el CHECK en el modelo + migración.
+        """EmailOutbox.status debe rechazar valores fuera de pending/sent/failed/dead.
+
+        FIX BUG-001: el modelo ahora define ``CheckConstraint('status IN (...)')``
+        y la migracion 0009 lo aplica a la BD SQLite. En Postgres, ``Base.metadata.create_all``
+        genera el CHECK directamente.
         """
         email = EmailOutbox(
             id=uuid.uuid4(),
@@ -383,12 +385,5 @@ class TestEmailOutbox:
             status="invalid_status",
         )
         async_session_postgres.add(email)
-        try:
+        with pytest.raises(IntegrityError):
             await async_session_postgres.flush()
-        except IntegrityError:
-            return  # Si lo rechaza, perfecto
-        # Si NO lo rechaza, xfail documentando el bug
-        pytest.xfail(
-            "EmailOutbox.status no tiene CHECK constraint — bug conocido "
-            "(modelo y BD desincronizados; ver issues/integracion-fase5.md)"
-        )
