@@ -1,29 +1,25 @@
 """
-Router de transfers (DEPRECATED — ver app.modules.transfers.__init__).
+Router de transfers (DEPRECATED COMPLETO — ver app.modules.transfers.__init__).
 
-Cambios en Fase 3 (ADR-0003):
-- Mantiene los GETs funcionando por 6 meses (compat con frontend).
-- Marca los POST/PATCH/DELETE como 410 Gone con sugerencia explicita.
-- Agrega `GET /transfers/{id}/derived` que arma una Transfer virtual
-  desde la solicitud_recarga subyacente (codigo == transfer.code).
+Cambios en Fase 5+ (migración async):
+- TODOS los endpoints retornan 410 Gone. El cliente debe usar
+  ``/api/v1/solicitudes`` en su lugar (N productos, flujo moderno).
+- Antes (Fase 3) los GETs seguían funcionando por compat con frontend;
+  ahora (Fase 5+) se cierran también para forzar la migración.
+- El ``TransferRepository`` legacy (SQLiteDatabase sync) y ``TransferService``
+  se conservan internamente solo para tests legacy que los importan, pero
+  el router ya no los usa.
 
-Las escrituras de transferencias (POST, PATCH, DELETE, cancel, approve,
-dispatch, receive) ya no son operativas. El cliente debe usar
-`/api/v1/solicitudes` en su lugar.
+Para que la respuesta 410 sea útil, el endpoint POST valida el body
+(origen == destino → 409) ANTES de retornar 410.
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
-from app.db.session import SQLiteDatabase, get_database
-from app.modules.auth.repository import AuthRepository
+from app.core.errors import InvalidTransferError
 from app.modules.auth.router import get_current_user
-from app.modules.auth.service import AuthService
-from app.modules.inventory.repository import InventoryRepository
-from app.modules.products.repository import ProductRepository
-from app.modules.transfers.repository import TransferRepository
 from app.modules.transfers.schemas import (
     TransferCreate,
     TransferDispatch,
@@ -31,23 +27,17 @@ from app.modules.transfers.schemas import (
     TransferResponse,
     TransferUpdate,
 )
-from app.modules.transfers.service import TransferService
-from app.modules.warehouses.repository import WarehouseRepository
 from fastapi import APIRouter, Depends, HTTPException, status
 
 router = APIRouter()
 
 
-# =============================================================================
-# Helpers: detectan si el handler es de escritura para responder 410 Gone
-# =============================================================================
-
 _DEPRECATED_MESSAGE = (
-    "El endpoint POST/PATCH/DELETE de /api/v1/transfers esta deprecado. "
+    "El endpoint /api/v1/transfers esta deprecado. "
     "Usa /api/v1/solicitudes en su lugar. "
     "Las transferencias (1 producto) fueron reemplazadas por solicitudes_recarga "
     "(N productos) segun ADR-0003. "
-    "Este modulo se retirara en ~6 meses."
+    "Este modulo se retirara definitivamente."
 )
 
 
@@ -64,92 +54,25 @@ def _gone(_detail: str | None = None) -> None:
 
 
 # =============================================================================
-# Service injection (legacy sync API)
+# GETs (tambien cerrados en Fase 5+)
 # =============================================================================
 
 
-def get_transfer_service(db: SQLiteDatabase = Depends(get_database)) -> TransferService:
-    return TransferService(
-        transfer_repository=TransferRepository(db),
-        inventory_repository=InventoryRepository(db),
-        warehouse_repository=WarehouseRepository(db),
-        product_repository=ProductRepository(db),
-    )
-
-
-def get_auth_service(db: SQLiteDatabase = Depends(get_database)) -> AuthService:
-    return AuthService(AuthRepository(db))
-
-
-# =============================================================================
-# GETs (compat 6 meses)
-# =============================================================================
-
-
-@router.get("", response_model=list[TransferResponse])
+@router.get("", response_model=list[TransferResponse], status_code=status.HTTP_410_GONE)
 def list_transfers(
     _: object = Depends(get_current_user),
-    service: TransferService = Depends(get_transfer_service),
-) -> list[TransferResponse]:
-    return service.list_transfers()
+) -> None:
+    """DEPRECATED — usar /api/v1/solicitudes."""
+    _gone("GET /transfers")
 
 
-@router.get("/{transfer_id}", response_model=TransferResponse)
+@router.get("/{transfer_id}", response_model=TransferResponse, status_code=status.HTTP_410_GONE)
 def get_transfer(
-    transfer_id: uuid.UUID,
+    transfer_id: uuid.UUID,  # noqa: ARG001
     _: object = Depends(get_current_user),
-    _service: TransferService = Depends(get_transfer_service),
-) -> TransferResponse:
-    """Lee una transferencia por id. DEPRECATED — usar /solicitudes."""
-    from app.core.errors import TransferNotFoundError
-    from app.db.session import get_database
-    from app.modules.transfers.repository import TransferRepository
-
-    db = get_database(_app_dependency())
-    repo = TransferRepository(db)
-    transfer = repo.get_by_id(transfer_id)
-    if transfer is None:
-        raise TransferNotFoundError(str(transfer_id))
-    # Convertir TransferRecord a TransferResponse via _to_view del service
-    # Implementacion directa: replicar la logica del service
-    warehouses = WarehouseRepository(db)
-    products = ProductRepository(db)
-    origin = warehouses.get_by_id(transfer.from_warehouse_id)
-    destination = warehouses.get_by_id(transfer.to_warehouse_id)
-    product = products.get_by_id(transfer.product_id)
-    if origin is None or destination is None or product is None:
-        raise TransferNotFoundError(str(transfer_id))
-    return TransferResponse(
-        id=transfer.id,
-        code=transfer.code,
-        from_warehouse_id=origin.id,
-        from_warehouse_code=origin.code,
-        from_warehouse_name=origin.name,
-        to_warehouse_id=destination.id,
-        to_warehouse_code=destination.code,
-        to_warehouse_name=destination.name,
-        product_id=product.id,
-        product_sku=product.sku,
-        product_name=product.name,
-        quantity=transfer.quantity,
-        received_quantity=transfer.received_quantity,
-        status=transfer.status,
-        priority=transfer.priority,
-        notes=transfer.notes,
-        dispatch_notes=transfer.dispatch_notes,
-        receive_notes=transfer.receive_notes,
-        incident_type=transfer.incident_type,
-        incident_notes=transfer.incident_notes,
-        created_at=transfer.created_at,
-        approved_at=transfer.approved_at,
-        dispatched_at=transfer.dispatched_at,
-        received_at=transfer.received_at,
-    )
-
-
-def _app_dependency() -> Any:
-    """Helper para inyeccion de DB en handlers sync."""
-    raise NotImplementedError("Use get_database from app.db.session directly")
+) -> None:
+    """DEPRECATED — usar /api/v1/solicitudes/{id}."""
+    _gone("GET /transfers/{id}")
 
 
 @router.get(
@@ -161,27 +84,8 @@ def get_derived_transfer(
     transfer_id: uuid.UUID,  # noqa: ARG001
     _: object = Depends(get_current_user),
 ) -> None:
-    """Vista derivada DEPRECATED — usar /solicitudes/{id}/derived.
-
-    Antes (Fase 0/1): retornaba un Transfer virtual desde la solicitud_recarga
-    subyacente (codigo == transfer.code).
-
-    Ahora (Fase 3+): este endpoint siempre retorna 410 Gone porque el
-    ``TransferRepository`` legacy sync no tiene acceso a la
-    ``AsyncSession`` de ``SolicitudService``. Los clientes deben usar
-    ``GET /api/v1/solicitudes/{id}/derived`` en su lugar.
-    """
+    """DEPRECATED — usar /api/v1/solicitudes/{id}/derived."""
     _gone("GET /transfers/{id}/derived")
-
-
-def _get_legacy_db() -> Any:  # noqa: F821
-    """DEPRECATED. Antes intentaba obtener el SQLiteDatabase legacy del app state.
-
-    Ya no se usa (el endpoint ``GET /transfers/{id}/derived`` ahora retorna
-    410 Gone directamente). Se mantiene por compatibilidad con imports
-    externos que puedan referenciarla.
-    """
-    return None
 
 
 # =============================================================================
@@ -194,13 +98,8 @@ def create_transfer(
     payload: TransferCreate,
     _=Depends(get_current_user),
 ) -> None:
-    # FIX Deuda #4: validar el body ANTES de retornar 410 Gone.
-    # Esto preserva la semantica del spec original (un POST con
-    # origin==destination debe retornar 409 invalid_transfer, no 410 Gone).
-    # El 410 se retorna SOLO para body valido, donde el unico "error"
-    # es que el endpoint esta deprecado.
-    from app.core.errors import InvalidTransferError
-
+    # Validar el body ANTES de retornar 410 Gone: preserva la semantica
+    # del spec original (origen==destino → 409 invalid_transfer, no 410).
     if payload.from_warehouse_id == payload.to_warehouse_id:
         raise InvalidTransferError()
     _gone("POST /transfers")
