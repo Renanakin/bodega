@@ -69,6 +69,17 @@ services:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
     ports:
       - "9093:9093"
+    environment:
+      # Slack/email: setear en produccion. Defaults vacios hacen que
+      # alertmanager arranque sin destino configurado (las alertas se
+      # encolan internamente y se pueden ver via UI :9093).
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - ONCALL_EMAIL=${ONCALL_EMAIL:-oncall@example.com}
+      - SMTP_HOST=${SMTP_HOST:-localhost}
+      - SMTP_PORT=${SMTP_PORT:-25}
+      - SMTP_FROM=${SMTP_FROM:-noreply@example.com}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     networks:
@@ -114,3 +125,12 @@ networks:
   bodega-obs:
     name: bodega-obs
     driver: bridge
+  # Reusamos la red del stack principal para que Prometheus pueda
+  # resolver el nombre "api" sin necesidad de `docker network connect`
+  # manual. En Docker Compose v2, los servicios de archivos distintos
+  # pero con la misma red la comparten automaticamente; aqui la
+  # declaramos explicitamente para que Prometheus y Alertmanager
+  # se conecten a ella sin tener que hacerlo a mano.
+  docker_default:
+    name: docker_default
+    external: true

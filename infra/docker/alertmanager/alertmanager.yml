@@ -37,7 +37,7 @@ route:
 receivers:
   - name: 'slack-default'
     slack_configs:
-      - api_url: '${SLACK_WEBHOOK_URL}'
+      - api_url: 'https://hooks.slack.com/services/PLACEHOLDER/PLACEHOLDER/PLACEHOLDER'
         channel: '#ops-default'
         send_resolved: true
         title: '{{ .GroupLabels.alertname }} ({{ .Status }})'
@@ -50,10 +50,10 @@ receivers:
 
   - name: 'oncall'
     slack_configs:
-      - api_url: '${SLACK_WEBHOOK_URL}'
+      - api_url: 'https://hooks.slack.com/services/PLACEHOLDER/PLACEHOLDER/PLACEHOLDER'
         channel: '#oncall'
         send_resolved: true
-        title: '🔴 CRITICAL: {{ .GroupLabels.alertname }}'
+        title: 'CRITICAL: {{ .GroupLabels.alertname }}'
         text: |
           {{ range .Alerts }}
           *{{ .Annotations.summary }}*
@@ -62,25 +62,21 @@ receivers:
           Runbook: {{ .Annotations.runbook_url }}
           {{ end }}
     email_configs:
-      - to: '${ONCALL_EMAIL}'
-        from: '${SMTP_FROM}'
-        smarthost: '${SMTP_HOST}:${SMTP_PORT}'
-        auth_username: '${SMTP_USER}'
-        auth_password: '${SMTP_PASSWORD}'
+      - to: 'oncall@example.com'
+        from: 'noreply@example.com'
+        smarthost: 'localhost:25'
+        auth_username: ''
+        auth_password: ''
         send_resolved: true
         headers:
-          Subject: '🔴 [CRITICAL] {{ .GroupLabels.alertname }}'
-    # PagerDuty opcional
-    # pagerduty_configs:
-    #   - service_key: '${PAGERDUTY_KEY}'
-    #     send_resolved: true
+          Subject: '[CRITICAL] {{ .GroupLabels.alertname }}'
 
   - name: 'ops-warnings'
     slack_configs:
-      - api_url: '${SLACK_WEBHOOK_URL}'
+      - api_url: 'https://hooks.slack.com/services/PLACEHOLDER/PLACEHOLDER/PLACEHOLDER'
         channel: '#ops-warnings'
         send_resolved: true
-        title: '⚠️ {{ .GroupLabels.alertname }} ({{ .Status }})'
+        title: 'WARNING: {{ .GroupLabels.alertname }} ({{ .Status }})'
         text: |
           {{ range .Alerts }}
           *{{ .Annotations.summary }}*

@@ -40,10 +40,10 @@ export function useReviewMvpData() {
         getJson("/inventory/movements"),
       ]);
 
-      let transfers: unknown[] = [];
+      let transfers = [];
       try {
         transfers = await getJson("/transfers");
-      } catch (transfersError: unknown) {
+      } catch (transfersError) {
         // 410 Gone o cualquier error del módulo deprecado: silenciar
         // y devolver array vacío para que la UI no rompa.
         if (process.env.NODE_ENV !== "production") {
