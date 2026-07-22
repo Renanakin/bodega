@@ -211,6 +211,16 @@ export function TransfersPage() {
 
   return (
     <div className="page-stack">
+      {/* C1.2: Banner DEPRECATED — transfers fueron reemplazadas por solicitudes_recarga
+          según ADR-0003. Esta página se conserva para histórico y se ocultará del menú
+          en la próxima iteración. Ver docs/operations/transfers-to-solicitudes-migration.md */}
+      <div className="callout callout-warning" role="alert" data-testid="transfers-deprecated-banner">
+        <strong>DEPRECATED</strong> — El endpoint <code>/api/v1/transfers</code> retorna 410
+        Gone. Las transferencias de 1 producto fueron reemplazadas por
+        <strong> solicitudes de recarga con N productos</strong> en
+        <a href="/solicitudes"> /solicitudes</a>. Esta página se conserva solo
+        para consulta histórica.
+      </div>
       <PageHeader
         kicker="Transferencias"
         title="Orquesta movimientos internos entre bodegas"

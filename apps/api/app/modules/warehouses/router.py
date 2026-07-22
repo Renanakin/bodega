@@ -14,6 +14,7 @@ Convenciones:
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from app.core.audit import record_audit
@@ -47,7 +48,7 @@ async def list_warehouses(
 @router.post("", response_model=WarehouseResponse, status_code=status.HTTP_201_CREATED)
 async def create_warehouse(
     payload: WarehouseCreate,
-    user=Depends(require_roles("admin")),
+    user: Any = Depends(require_roles("admin")),
     service: WarehouseService = Depends(get_warehouse_service),
     session: AsyncSession = Depends(get_session),
 ) -> WarehouseResponse:

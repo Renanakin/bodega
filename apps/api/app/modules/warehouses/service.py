@@ -17,7 +17,11 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from app.core.errors import DuplicateWarehouseCodeError, WarehouseNotFoundError
+from app.core.errors import (
+    DuplicateWarehouseCodeError,
+    DuplicateWarehouseNameError,
+    WarehouseNotFoundError,
+)
 from app.db.models.warehouses import Warehouse
 from app.modules.warehouses.repository import WarehouseRepository
 from app.modules.warehouses.schemas import WarehouseCreate
@@ -49,6 +53,13 @@ class WarehouseService:
     async def create_warehouse(self, payload: WarehouseCreate) -> Warehouse:
         if await self._repository.get_by_code(payload.code) is not None:
             raise DuplicateWarehouseCodeError(payload.code)
+
+        # C1.1: el CHECK/UNIQUE en ``name`` existe en BD (migración 0001) pero
+        # sin este check previo, dos requests concurrentes podrían pasar
+        # ambos lookups y el segundo recibiría un 500 IntegrityError. Con el
+        # check, ambos casos devuelven 409 limpio.
+        if await self._repository.get_by_name(payload.name) is not None:
+            raise DuplicateWarehouseNameError(payload.name)
 
         now = _now_utc()
         warehouse = Warehouse(

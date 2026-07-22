@@ -29,14 +29,28 @@ export function useReviewMvpData() {
     setState((current) => ({ ...current, loading: true, error: "" }));
 
     try {
-      const [summary, warehouses, products, stock, movements, transfers] = await Promise.all([
+      // C1.2: /transfers retorna 410 Gone (ADR-0003). Lo manejamos por
+      // separado para que el resto de la página siga funcionando aunque
+      // el backend ya no exponga el endpoint.
+      const [summary, warehouses, products, stock, movements] = await Promise.all([
         getJson("/inventory/summary"),
         getJson("/warehouses"),
         getJson("/products"),
         getJson("/inventory/stock"),
         getJson("/inventory/movements"),
-        getJson("/transfers"),
       ]);
+
+      let transfers: unknown[] = [];
+      try {
+        transfers = await getJson("/transfers");
+      } catch (transfersError: unknown) {
+        // 410 Gone o cualquier error del módulo deprecado: silenciar
+        // y devolver array vacío para que la UI no rompa.
+        if (process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.warn("useReviewMvpData: /transfers no disponible (deprecado)", transfersError);
+        }
+      }
 
       setState({
         summary,

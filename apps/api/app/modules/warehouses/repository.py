@@ -44,6 +44,18 @@ class WarehouseRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_name(self, name: str) -> Warehouse | None:
+        """Lookup por ``name``.
+
+        La unicidad de ``name`` está enforzada por la BD (migración 0001).
+        Este lookup existe para que ``WarehouseService.create_warehouse``
+        devuelva un 409 limpio en vez de propagar un ``IntegrityError`` de
+        Postgres cuando hay race condition entre dos requests concurrentes.
+        """
+        stmt = select(Warehouse).where(Warehouse.name == name)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     # --------------------------------------------------------------- WRITE
 
     async def add(self, warehouse: Warehouse) -> Warehouse:

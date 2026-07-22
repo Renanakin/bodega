@@ -51,6 +51,16 @@ class DuplicateWarehouseCodeError(DomainError):
         )
 
 
+class DuplicateWarehouseNameError(DomainError):
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            code="duplicate_warehouse_name",
+            message=f"Warehouse name '{name}' already exists.",
+            status_code=409,
+            extra={"field": "name", "value": name},
+        )
+
+
 class DuplicateSkuError(DomainError):
     def __init__(self, sku: str) -> None:
         super().__init__(

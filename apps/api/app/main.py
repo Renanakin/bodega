@@ -133,7 +133,10 @@ def _resolve_backend(db_path: str | None = None) -> tuple[str, str]:
     if settings.db_backend == "postgres":
         from app.db.session import _redact_url
 
-        return "postgres", _redact_url(settings.database_url)
+        # settings.database_url es no-None en este branch (db_backend=="postgres"
+        # lo garantiza), pero mypy no lo sabe. ``str(...)`` es seguro.
+        db_url = settings.database_url or ""
+        return "postgres", _redact_url(db_url)
 
     # Cualquier otro caso: backend SQLite async.
     return "sqlite", settings.database_url or "(default in-memory)"
