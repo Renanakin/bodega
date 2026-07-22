@@ -10,15 +10,15 @@ Endpoints:
 
 Convenciones:
 - ``session: AsyncSession = Depends(get_session)`` (no más ``get_database``).
-- Todas las funciones son ``async def``.
-- El audit se hace via ``AuthServiceAsync.audit_async(...)`` para que el
-  commit del log sea parte de la misma transacción que la mutación.
+- Funciones ``async def``.
+- Audit via ``app.core.audit.record_audit`` (best-effort).
 """
 
 from __future__ import annotations
 
 from uuid import UUID
 
+from app.core.audit import record_audit
 from app.db.session import get_session
 from app.modules.auth.dependencies import require_roles
 from app.modules.auth.router import get_current_user
@@ -77,37 +77,13 @@ async def create_category(
     service: CategoryService = Depends(get_category_service),
 ) -> CategoryResponse:
     category = await service.create_category(payload)
-    # Audit se hace después del commit de la categoría; usamos una sesión
-    # dedicada para que NO comparta la transacción (el caller ya recibió
-    # la respuesta con 201). En tests, ``audit`` vía AuthService async
-    # no rompe el flujo.
-    from app.modules.auth.service import AuthService
-    from app.modules.auth.repository import AuthRepository
-    from app.db.session import utcnow
-    from uuid import uuid4
-    from app.db.session import AuditLogRecord
-
-    record = AuditLogRecord(
-        id=uuid4(),
+    await record_audit(
         user_id=user.id,
         action="category.create",
         entity_type="category",
         entity_id=str(category.id),
         detail=f"Categoria {category.nombre} creada",
-        created_at=utcnow(),
     )
-    # Usar una nueva sesión async para el audit (independiente).
-    from app.db.session import get_session_factory
-
-    factory = get_session_factory()
-    async with factory() as audit_session:
-        try:
-            repo = AuthRepository(audit_session)
-            await repo._async_add_audit_log(record)
-            await audit_session.commit()
-        except Exception:
-            # Audit best-effort: nunca falla la operación principal.
-            pass
     return CategoryResponse.model_validate(category)
 
 
@@ -129,30 +105,13 @@ async def update_category(
     service: CategoryService = Depends(get_category_service),
 ) -> CategoryResponse:
     category = await service.update_category(category_id, payload)
-    # Audit best-effort (ver nota en create_category).
-    from app.db.session import get_session_factory
-    from app.modules.auth.repository import AuthRepository
-    from app.modules.auth.service import AuthService
-    from app.db.session import AuditLogRecord, utcnow
-    from uuid import uuid4
-
-    record = AuditLogRecord(
-        id=uuid4(),
+    await record_audit(
         user_id=user.id,
         action="category.update",
         entity_type="category",
         entity_id=str(category_id),
         detail=f"Categoria {category.nombre} actualizada",
-        created_at=utcnow(),
     )
-    factory = get_session_factory()
-    async with factory() as audit_session:
-        try:
-            repo = AuthRepository(audit_session)
-            await repo._async_add_audit_log(record)
-            await audit_session.commit()
-        except Exception:
-            pass
     return CategoryResponse.model_validate(category)
 
 
@@ -167,26 +126,10 @@ async def delete_category(
     service: CategoryService = Depends(get_category_service),
 ) -> None:
     await service.delete_category(category_id)
-    # Audit best-effort.
-    from app.db.session import get_session_factory
-    from app.modules.auth.repository import AuthRepository
-    from app.db.session import AuditLogRecord, utcnow
-    from uuid import uuid4
-
-    record = AuditLogRecord(
-        id=uuid4(),
+    await record_audit(
         user_id=user.id,
         action="category.delete",
         entity_type="category",
         entity_id=str(category_id),
         detail=f"Categoria {category_id} desactivada",
-        created_at=utcnow(),
     )
-    factory = get_session_factory()
-    async with factory() as audit_session:
-        try:
-            repo = AuthRepository(audit_session)
-            await repo._async_add_audit_log(record)
-            await audit_session.commit()
-        except Exception:
-            pass

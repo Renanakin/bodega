@@ -211,7 +211,7 @@ async def exception_handler_with_correlation_id(_request: Request, _exc: Excepti
 
 
 async def sqlite_integrity_error_handler(_request: Request, exc: Exception) -> Response:
-    """Handler especifico para ``sqlite3.IntegrityError``.
+    """Handler especifico para ``sqlite3.IntegrityError`` y ``sqlalchemy.exc.IntegrityError``.
 
     Convierte el error 500 en un 422 (Unprocessable Entity) con el mensaje
     del constraint violated, para que la UI muestre algo util en vez de
@@ -220,6 +220,11 @@ async def sqlite_integrity_error_handler(_request: Request, exc: Exception) -> R
     Aplica a CHECK constraints (ej. ``warehouse_type`` invalido, falta
     ``parent_warehouse_id`` para ``mecanico_box``) y UNIQUE constraints
     (ej. ``code`` duplicado).
+
+    En modo async SQLAlchemy 2.0, los INSERT/UPDATE lanzan
+    ``sqlalchemy.exc.IntegrityError`` (que envuelve al ``sqlite3.IntegrityError``
+    subyacente en SQLite, o al ``asyncpg.exceptions.UniqueViolationError`` /
+    ``asyncpg.exceptions.CheckViolationError`` en Postgres).
     """
     import sqlite3
 
@@ -231,13 +236,19 @@ async def sqlite_integrity_error_handler(_request: Request, exc: Exception) -> R
         headers["X-Correlation-ID"] = correlation_id
     clear_request_context()
 
-    raw = str(exc) if isinstance(exc, sqlite3.IntegrityError) else str(exc)
+    # SQLAlchemy envuelve el error original; sacamos el mensaje del
+    # ``orig`` si esta disponible, sino usamos el string del exc.
+    raw = str(exc)
+    orig = getattr(exc, "orig", None)
+    if orig is not None and str(orig):
+        raw = str(orig)
+
     # ``sqlite3.IntegrityError`` con check_same_thread=False a veces trae
     # un mensaje generico tipo "CHECK constraint failed: ...". Devolvemos
     # el texto tal cual para que la UI lo muestre.
-    if "CHECK constraint failed" in raw:
+    if "CHECK constraint failed" in raw or "check constraint" in raw.lower():
         detail_code = "check_constraint_violated"
-    elif "UNIQUE constraint failed" in raw:
+    elif "UNIQUE constraint failed" in raw or "unique constraint" in raw.lower():
         detail_code = "unique_constraint_violated"
     else:
         detail_code = "integrity_error"
@@ -271,7 +282,9 @@ def install_correlation_handlers(app: ASGIApp) -> None:
         # El handler especifico se registra ANTES del catch-all para que
         # FastAPI matchee por especificidad (subclase de Exception).
         import sqlite3
+        from sqlalchemy.exc import IntegrityError as SAIntegrityError
 
+        app.add_exception_handler(SAIntegrityError, sqlite_integrity_error_handler)
         app.add_exception_handler(sqlite3.IntegrityError, sqlite_integrity_error_handler)
         app.add_exception_handler(Exception, exception_handler_with_correlation_id)
 

@@ -1,58 +1,55 @@
+"""
+Repository de warehouses (async, SQLAlchemy 2.0).
+
+Acceso a datos sobre la tabla ``warehouses`` usando ``AsyncSession`` y
+el modelo ORM ``Warehouse``. Versión async del repository legacy
+(que usaba ``SQLiteDatabase`` + SQL crudo).
+
+Convenciones:
+- Métodos ``async def`` (await required).
+- Retornan el modelo ORM ``Warehouse`` directamente.
+- El caller (``WarehouseService``) hace ``await session.commit()``.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime
-from uuid import UUID
+import uuid
 
-from app.db.session import SQLiteDatabase, WarehouseRecord
-
-
-def _to_warehouse(row) -> WarehouseRecord:
-    return WarehouseRecord(
-        id=UUID(row["id"]),
-        code=row["code"],
-        name=row["name"],
-        warehouse_type=row["warehouse_type"],
-        is_active=bool(row["is_active"]),
-        created_at=datetime.fromisoformat(row["created_at"]),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
-    )
+from app.db.models.warehouses import Warehouse
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class WarehouseRepository:
-    def __init__(self, db: SQLiteDatabase) -> None:
-        self._db = db
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
 
-    def list(self) -> list[WarehouseRecord]:
-        rows = self._db.query_all("SELECT * FROM warehouses ORDER BY code")
-        return [_to_warehouse(row) for row in rows]
+    # ----------------------------------------------------------------- READ
 
-    def count(self) -> int:
-        row = self._db.query_one("SELECT COUNT(*) AS total FROM warehouses")
-        return int(row["total"]) if row is not None else 0
+    async def list(self) -> list[Warehouse]:
+        stmt = select(Warehouse).order_by(Warehouse.code)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
-    def get_by_id(self, warehouse_id: UUID) -> WarehouseRecord | None:
-        row = self._db.query_one("SELECT * FROM warehouses WHERE id = ?", (str(warehouse_id),))
-        return _to_warehouse(row) if row is not None else None
+    async def count(self) -> int:
+        stmt = select(func.count(Warehouse.id))
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one() or 0)
 
-    def get_by_code(self, code: str) -> WarehouseRecord | None:
-        row = self._db.query_one("SELECT * FROM warehouses WHERE code = ?", (code,))
-        return _to_warehouse(row) if row is not None else None
+    async def get_by_id(self, warehouse_id: uuid.UUID) -> Warehouse | None:
+        return await self._session.get(Warehouse, warehouse_id)
 
-    def add(self, warehouse: WarehouseRecord) -> WarehouseRecord:
-        self._db.execute(
-            """
-            INSERT INTO warehouses (
-                id, code, name, warehouse_type, is_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(warehouse.id),
-                warehouse.code,
-                warehouse.name,
-                warehouse.warehouse_type,
-                int(warehouse.is_active),
-                warehouse.created_at.isoformat(),
-                warehouse.updated_at.isoformat(),
-            ),
-        )
+    async def get_by_code(self, code: str) -> Warehouse | None:
+        stmt = select(Warehouse).where(Warehouse.code == code)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    # --------------------------------------------------------------- WRITE
+
+    async def add(self, warehouse: Warehouse) -> Warehouse:
+        self._session.add(warehouse)
+        await self._session.flush()
         return warehouse
+
+
+__all__ = ["WarehouseRepository"]
