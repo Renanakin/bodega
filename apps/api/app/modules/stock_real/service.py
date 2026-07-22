@@ -1,19 +1,24 @@
 """
-Service de stock por ubicación (Fase 2).
+Service de stock por ubicación (async).
 
 Tres responsabilidades:
 1. ``list_stock_real``: consulta granular con filtros.
 2. ``upsert_stock_real``: upsert por (producto, ubicación).
-3. ``distribucion_por_sku``: grilla multibodega para el spec §4.1
-   (formato "Bodega X: 140 (P-01/E-02)").
+3. ``distribucion_por_sku``: grilla multibodega para el spec §4.1.
 4. ``bajo_minimo``: alerta de productos por debajo del mínimo en una
    bodega concreta.
+
+Convenciones:
+- Métodos ``async def``.
+- ``await session.commit()`` + ``refresh()`` después de mutaciones.
+- Para las queries JOIN que el spec necesita (``stock_levels`` +
+  ``warehouses``), uso SQLAlchemy ORM con join en vez de SQL crudo.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.core.errors import (
@@ -21,7 +26,11 @@ from app.core.errors import (
     UbicacionNotFoundError,
     WarehouseNotFoundError,
 )
-from app.db.session import SQLiteDatabase, utcnow
+from app.db.models.inventory import StockLevel
+from app.db.models.products import Product
+from app.db.models.stock_real import InventarioStockReal
+from app.db.models.ubicaciones import UbicacionEstanteria
+from app.db.models.warehouses import Warehouse
 from app.modules.products.repository import ProductRepository
 from app.modules.stock_real.repository import StockRealRepository
 from app.modules.stock_real.schemas import (
@@ -33,6 +42,8 @@ from app.modules.stock_real.schemas import (
 )
 from app.modules.ubicaciones.repository import UbicacionRepository
 from app.modules.warehouses.repository import WarehouseRepository
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _format_ubicacion_code(pasillo: int, estanteria: int, altura: int) -> str:
@@ -40,35 +51,41 @@ def _format_ubicacion_code(pasillo: int, estanteria: int, altura: int) -> str:
     return f"P-{pasillo:02d}/E-{estanteria:02d}/A-{altura:02d}"
 
 
+def _now_utc() -> datetime:
+    return datetime.now(UTC)
+
+
 class StockRealService:
     def __init__(
         self,
-        db: SQLiteDatabase,
-        stock_real_repository: StockRealRepository,
-        ubicacion_repository: UbicacionRepository,
-        warehouse_repository: WarehouseRepository,
-        product_repository: ProductRepository,
+        session: AsyncSession,
+        stock_real_repository: StockRealRepository | None = None,
+        ubicacion_repository: UbicacionRepository | None = None,
+        warehouse_repository: WarehouseRepository | None = None,
+        product_repository: ProductRepository | None = None,
     ) -> None:
-        self._db = db
-        self._stock_real = stock_real_repository
-        self._ubicaciones = ubicacion_repository
-        self._warehouses = warehouse_repository
-        self._products = product_repository
+        self._session = session
+        self._stock_real = stock_real_repository or StockRealRepository(session)
+        self._ubicaciones = ubicacion_repository or UbicacionRepository(session)
+        self._warehouses = warehouse_repository or WarehouseRepository(session)
+        self._products = product_repository or ProductRepository(session)
 
     # --- CRUD granular ---
 
-    def list_stock_real(
+    async def list_stock_real(
         self,
         *,
         warehouse_id: uuid.UUID | None = None,
         product_id: uuid.UUID | None = None,
     ) -> list[StockRealItem]:
-        if warehouse_id is not None and self._warehouses.get_by_id(warehouse_id) is None:
+        if warehouse_id is not None and await self._warehouses.get_by_id(warehouse_id) is None:
             raise WarehouseNotFoundError(str(warehouse_id))
-        if product_id is not None and self._products.get_by_id(product_id) is None:
+        if product_id is not None and await self._products.get_by_id(product_id) is None:
             raise ProductNotFoundError(str(product_id))
 
-        rows = self._stock_real.list(warehouse_id=warehouse_id, product_id=product_id)
+        rows = await self._stock_real.list(
+            warehouse_id=warehouse_id, product_id=product_id
+        )
         return [
             StockRealItem(
                 id_producto=r.id_producto,
@@ -79,80 +96,80 @@ class StockRealService:
             for r in rows
         ]
 
-    def upsert_stock_real(
+    async def upsert_stock_real(
         self,
         id_producto: uuid.UUID,
         id_ubicacion: uuid.UUID,
         cantidad: Decimal,
     ) -> StockRealItem:
-        if self._products.get_by_id(id_producto) is None:
+        if await self._products.get_by_id(id_producto) is None:
             raise ProductNotFoundError(str(id_producto))
-        if self._ubicaciones.get_by_id(id_ubicacion) is None:
+        if await self._ubicaciones.get_by_id(id_ubicacion) is None:
             raise UbicacionNotFoundError(str(id_ubicacion))
 
-        now = utcnow()
-        self._stock_real.upsert(id_producto, id_ubicacion, cantidad, now)
+        await self._stock_real.upsert(id_producto, id_ubicacion, cantidad)
+        await self._session.commit()
+        # Leer el row final para obtener el updated_at que la BD le asignó.
+        final = await self._stock_real.get(id_producto, id_ubicacion)
+        if final is None:
+            raise UbicacionNotFoundError(str(id_ubicacion))
         return StockRealItem(
             id_producto=id_producto,
             id_ubicacion=id_ubicacion,
-            cantidad=cantidad,
-            updated_at=now,
+            cantidad=final.cantidad,
+            updated_at=final.updated_at,
         )
 
     # --- Grilla multibodega (spec §4.1) ---
 
-    def distribucion_por_sku(self, sku: str) -> DistribucionMultibodegaResponse:
-        product = self._products.get_by_sku(sku.strip().upper())
+    async def distribucion_por_sku(self, sku: str) -> DistribucionMultibodegaResponse:
+        product = await self._products.get_by_sku(sku.strip().upper())
         if product is None:
             raise ProductNotFoundError(sku)
 
-        # Nivel 1: stock agregado por bodega
-        stock_rows = self._db.query_all(
-            """
-            SELECT
-                sl.warehouse_id, sl.quantity, sl.min_quantity,
-                w.code, w.name, w.warehouse_type
-            FROM stock_levels sl
-            JOIN warehouses w ON w.id = sl.warehouse_id
-            WHERE sl.product_id = ?
-            ORDER BY w.code
-            """,
-            (str(product.id),),
+        # Nivel 1: stock agregado por bodega (JOIN stock_levels + warehouses).
+        sl_stmt = (
+            select(StockLevel, Warehouse)
+            .join(Warehouse, Warehouse.id == StockLevel.warehouse_id)
+            .where(StockLevel.product_id == product.id)
+            .order_by(Warehouse.code)
         )
+        sl_rows = (await self._session.execute(sl_stmt)).all()
 
-        # Nivel 2: ubicaciones del producto
-        ubic_rows = self._db.query_all(
-            """
-            SELECT
-                u.id, u.id_bodega, u.pasillo, u.estanteria, u.altura, sr.cantidad
-            FROM inventario_stock_real sr
-            JOIN ubicaciones_estanteria u ON u.id = sr.id_ubicacion
-            WHERE sr.id_producto = ?
-            ORDER BY u.id_bodega, u.pasillo, u.estanteria, u.altura
-            """,
-            (str(product.id),),
-        )
-        ubicaciones_por_bodega: dict[str, list[UbicacionDistribucionItem]] = {}
-        for urow in ubic_rows:
-            item = UbicacionDistribucionItem(
-                id_ubicacion=uuid.UUID(urow["id"]),
-                pasillo=int(urow["pasillo"]),
-                estanteria=int(urow["estanteria"]),
-                altura=int(urow["altura"]),
-                cantidad=Decimal(str(urow["cantidad"])),
-                code=_format_ubicacion_code(
-                    int(urow["pasillo"]),
-                    int(urow["estanteria"]),
-                    int(urow["altura"]),
-                ),
+        # Nivel 2: ubicaciones del producto (JOIN inventario_stock_real + ubicaciones).
+        ub_stmt = (
+            select(InventarioStockReal, UbicacionEstanteria)
+            .join(
+                UbicacionEstanteria,
+                UbicacionEstanteria.id == InventarioStockReal.id_ubicacion,
             )
-            ubicaciones_por_bodega.setdefault(str(urow["id_bodega"]), []).append(item)
+            .where(InventarioStockReal.id_producto == product.id)
+            .order_by(
+                UbicacionEstanteria.id_bodega,
+                UbicacionEstanteria.pasillo,
+                UbicacionEstanteria.estanteria,
+                UbicacionEstanteria.altura,
+            )
+        )
+        ub_rows = (await self._session.execute(ub_stmt)).all()
+
+        ubicaciones_por_bodega: dict[str, list[UbicacionDistribucionItem]] = {}
+        for sr, u in ub_rows:
+            item = UbicacionDistribucionItem(
+                id_ubicacion=u.id,
+                pasillo=u.pasillo,
+                estanteria=u.estanteria,
+                altura=u.altura,
+                cantidad=sr.cantidad,
+                code=_format_ubicacion_code(u.pasillo, u.estanteria, u.altura),
+            )
+            ubicaciones_por_bodega.setdefault(str(u.id_bodega), []).append(item)
 
         bodegas: list[DistribucionBodegaItem] = []
         total_global = Decimal("0")
-        for srow in stock_rows:
-            quantity = Decimal(str(srow["quantity"]))
-            min_quantity = Decimal(str(srow["min_quantity"]))
+        for sl, w in sl_rows:
+            quantity = sl.quantity
+            min_quantity = sl.min_quantity
             total_global += quantity
 
             if quantity <= 0:
@@ -164,14 +181,14 @@ class StockRealService:
 
             bodegas.append(
                 DistribucionBodegaItem(
-                    bodega_id=uuid.UUID(srow["warehouse_id"]),
-                    bodega_code=srow["code"],
-                    bodega_name=srow["name"],
-                    bodega_type=srow["warehouse_type"],
+                    bodega_id=w.id,
+                    bodega_code=w.code,
+                    bodega_name=w.name,
+                    bodega_type=w.warehouse_type,
                     total_quantity=quantity,
                     min_quantity=min_quantity,
                     estado=estado,
-                    ubicaciones=ubicaciones_por_bodega.get(str(srow["warehouse_id"]), []),
+                    ubicaciones=ubicaciones_por_bodega.get(str(w.id), []),
                 )
             )
 
@@ -187,44 +204,42 @@ class StockRealService:
 
     # --- Bajo mínimo ---
 
-    def bajo_minimo(self, bodega_id: uuid.UUID | None = None) -> list[BajoMinimoItem]:
-        if bodega_id is not None and self._warehouses.get_by_id(bodega_id) is None:
+    async def bajo_minimo(
+        self, bodega_id: uuid.UUID | None = None
+    ) -> list[BajoMinimoItem]:
+        if bodega_id is not None and await self._warehouses.get_by_id(bodega_id) is None:
             raise WarehouseNotFoundError(str(bodega_id))
 
-        clauses = ["sl.min_quantity > 0", "sl.quantity <= sl.min_quantity"]
-        params: list[object] = []
-        if bodega_id is not None:
-            clauses.append("sl.warehouse_id = ?")
-            params.append(str(bodega_id))
-        where = " AND ".join(clauses)
-
-        rows = self._db.query_all(  # noqa: S608
-            (
-                f"""
-                SELECT
-                    sl.warehouse_id, sl.product_id, sl.quantity, sl.min_quantity, sl.updated_at,
-                    w.code, w.name,
-                    p.sku, p.name AS product_name
-                FROM stock_levels sl
-                JOIN warehouses w ON w.id = sl.warehouse_id
-                JOIN products p ON p.id = sl.product_id
-                WHERE {where}
-                ORDER BY (sl.quantity - sl.min_quantity) ASC, w.code, p.sku
-                """
-            ),
-            tuple(params),
+        stmt = (
+            select(StockLevel, Warehouse, Product)
+            .join(Warehouse, Warehouse.id == StockLevel.warehouse_id)
+            .join(Product, Product.id == StockLevel.product_id)
+            .where(StockLevel.min_quantity > 0)
+            .where(StockLevel.quantity <= StockLevel.min_quantity)
         )
+        if bodega_id is not None:
+            stmt = stmt.where(StockLevel.warehouse_id == bodega_id)
+        stmt = stmt.order_by(
+            (StockLevel.quantity - StockLevel.min_quantity).asc(),
+            Warehouse.code,
+            Product.sku,
+        )
+        rows = (await self._session.execute(stmt)).all()
+
         return [
             BajoMinimoItem(
-                bodega_id=uuid.UUID(r["warehouse_id"]),
-                bodega_code=r["code"],
-                bodega_name=r["name"],
-                product_id=uuid.UUID(r["product_id"]),
-                product_sku=r["sku"],
-                product_name=r["product_name"],
-                quantity=Decimal(str(r["quantity"])),
-                min_quantity=Decimal(str(r["min_quantity"])),
-                updated_at=datetime.fromisoformat(r["updated_at"]),
+                bodega_id=w.id,
+                bodega_code=w.code,
+                bodega_name=w.name,
+                product_id=p.id,
+                product_sku=p.sku,
+                product_name=p.name,
+                quantity=sl.quantity,
+                min_quantity=sl.min_quantity,
+                updated_at=sl.updated_at,
             )
-            for r in rows
+            for sl, w, p in rows
         ]
+
+
+__all__ = ["StockRealService"]

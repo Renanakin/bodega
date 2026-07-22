@@ -1,91 +1,66 @@
+"""
+Repository de products (async, SQLAlchemy 2.0).
+
+Acceso a datos sobre la tabla ``products`` usando ``AsyncSession`` y
+el modelo ORM ``Product``. Versión async del repository legacy
+(que usaba ``SQLiteDatabase`` + SQL crudo).
+
+Convenciones:
+- Métodos ``async def``.
+- Retornan el modelo ORM ``Product`` directamente.
+- ``update`` aplica cambios parciales al modelo (no hay PATCH-SQL con
+  ``UPDATE ... WHERE id = ?``); el service hace commit después.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime
+import uuid
 from decimal import Decimal
-from uuid import UUID
 
-from app.db.session import ProductRecord, SQLiteDatabase
-
-
-def _to_product(row) -> ProductRecord:
-    return ProductRecord(
-        id=UUID(row["id"]),
-        sku=row["sku"],
-        name=row["name"],
-        unit=row["unit"],
-        is_active=bool(row["is_active"]),
-        created_at=datetime.fromisoformat(row["created_at"]),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
-        codigo_barras=row["codigo_barras"] if "codigo_barras" in row.keys() else None,  # noqa: SIM118
-        precio_costo=(
-            Decimal(str(row["precio_costo"]))
-            if "precio_costo" in row.keys() and row["precio_costo"] is not None  # noqa: SIM118
-            else Decimal("0")
-        ),
-        precio_venta=(
-            Decimal(str(row["precio_venta"]))
-            if "precio_venta" in row.keys() and row["precio_venta"] is not None  # noqa: SIM118
-            else Decimal("0")
-        ),
-        id_categoria=(
-            UUID(row["id_categoria"])
-            if "id_categoria" in row.keys() and row["id_categoria"]  # noqa: SIM118
-            else None
-        ),
-    )
+from app.db.models.products import Product
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class ProductRepository:
-    def __init__(self, db: SQLiteDatabase) -> None:
-        self._db = db
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
 
-    def list(self) -> list[ProductRecord]:
-        rows = self._db.query_all("SELECT * FROM products ORDER BY sku")
-        return [_to_product(row) for row in rows]
+    # ----------------------------------------------------------------- READ
 
-    def count(self) -> int:
-        row = self._db.query_one("SELECT COUNT(*) AS total FROM products")
-        return int(row["total"]) if row is not None else 0
+    async def list(self) -> list[Product]:
+        stmt = select(Product).order_by(Product.sku)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
-    def get_by_id(self, product_id: UUID) -> ProductRecord | None:
-        row = self._db.query_one("SELECT * FROM products WHERE id = ?", (str(product_id),))
-        return _to_product(row) if row is not None else None
+    async def count(self) -> int:
+        stmt = select(func.count(Product.id))
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one() or 0)
 
-    def get_by_sku(self, sku: str) -> ProductRecord | None:
-        row = self._db.query_one("SELECT * FROM products WHERE sku = ?", (sku,))
-        return _to_product(row) if row is not None else None
+    async def get_by_id(self, product_id: uuid.UUID) -> Product | None:
+        return await self._session.get(Product, product_id)
 
-    def get_by_codigo_barras(self, codigo_barras: str) -> ProductRecord | None:
-        row = self._db.query_one("SELECT * FROM products WHERE codigo_barras = ?", (codigo_barras,))
-        return _to_product(row) if row is not None else None
+    async def get_by_sku(self, sku: str) -> Product | None:
+        stmt = select(Product).where(Product.sku == sku)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
-    def add(self, product: ProductRecord) -> ProductRecord:
-        self._db.execute(
-            """
-            INSERT INTO products (
-                id, sku, name, unit, is_active, created_at, updated_at,
-                codigo_barras, precio_costo, precio_venta, id_categoria
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(product.id),
-                product.sku,
-                product.name,
-                product.unit,
-                int(product.is_active),
-                product.created_at.isoformat(),
-                product.updated_at.isoformat(),
-                product.codigo_barras,
-                str(product.precio_costo),
-                str(product.precio_venta),
-                str(product.id_categoria) if product.id_categoria else None,
-            ),
-        )
+    async def get_by_codigo_barras(self, codigo_barras: str) -> Product | None:
+        stmt = select(Product).where(Product.codigo_barras == codigo_barras)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    # --------------------------------------------------------------- WRITE
+
+    async def add(self, product: Product) -> Product:
+        self._session.add(product)
+        await self._session.flush()
         return product
 
-    def update(
+    async def update(
         self,
-        product_id: UUID,
+        product: Product,
         *,
         name: str | None = None,
         unit: str | None = None,
@@ -93,45 +68,28 @@ class ProductRepository:
         codigo_barras: str | None = None,
         precio_costo: Decimal | None = None,
         precio_venta: Decimal | None = None,
-        id_categoria: UUID | None = None,
-        updated_at: datetime | None = None,
-    ) -> None:
-        """PATCH parcial.
-
-        ``id_categoria`` se persiste con el valor recibido; pasar ``None``
-        explícito desvincula la categoría. Para no tocar el campo, no
-        pasar el kwarg.
+        id_categoria: uuid.UUID | None = None,
+    ) -> Product:
+        """PATCH parcial. ``id_categoria`` se persiste con el valor recibido;
+        pasar ``None`` explícito desvincula la categoría. Para no tocar el
+        campo, no pasar el kwarg.
         """
-        sets: list[str] = []
-        params: list[object] = []
         if name is not None:
-            sets.append("name = ?")
-            params.append(name)
+            product.name = name
         if unit is not None:
-            sets.append("unit = ?")
-            params.append(unit)
+            product.unit = unit
         if is_active is not None:
-            sets.append("is_active = ?")
-            params.append(int(is_active))
+            product.is_active = is_active
         if codigo_barras is not None:
-            sets.append("codigo_barras = ?")
-            params.append(codigo_barras)
+            product.codigo_barras = codigo_barras
         if precio_costo is not None:
-            sets.append("precio_costo = ?")
-            params.append(str(precio_costo))
+            product.precio_costo = precio_costo
         if precio_venta is not None:
-            sets.append("precio_venta = ?")
-            params.append(str(precio_venta))
+            product.precio_venta = precio_venta
         if id_categoria is not None:
-            sets.append("id_categoria = ?")
-            params.append(str(id_categoria))
-        if updated_at is not None:
-            sets.append("updated_at = ?")
-            params.append(updated_at.isoformat())
-        if not sets:
-            return
-        params.append(str(product_id))
-        self._db.execute(
-            f"UPDATE products SET {', '.join(sets)} WHERE id = ?",  # noqa: S608
-            tuple(params),
-        )
+            product.id_categoria = id_categoria
+        await self._session.flush()
+        return product
+
+
+__all__ = ["ProductRepository"]

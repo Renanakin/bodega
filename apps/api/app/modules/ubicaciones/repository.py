@@ -1,140 +1,82 @@
 """
-Repository de ubicaciones físicas (Fase 2).
+Repository de ubicaciones (async, SQLAlchemy 2.0).
 
-Operaciones CRUD sobre ``ubicaciones_estanteria`` usando el
-``SQLiteDatabase`` legacy (Fase 0/1 compat).
+Operaciones CRUD sobre ``ubicaciones_estanteria`` usando ``AsyncSession``
+y el modelo ORM ``UbicacionEstanteria``. Versión async del repository
+legacy (que usaba ``SQLiteDatabase`` + SQL crudo).
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
 
-from app.db.session import SQLiteDatabase
-
-
-@dataclass(slots=True)
-class UbicacionRecord:
-    id: uuid.UUID
-    id_bodega: uuid.UUID
-    pasillo: int
-    estanteria: int
-    altura: int
-    descripcion: str | None
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
-
-
-def _to_ubicacion(row: Any) -> UbicacionRecord:
-    return UbicacionRecord(
-        id=uuid.UUID(row["id"]),
-        id_bodega=uuid.UUID(row["id_bodega"]),
-        pasillo=int(row["pasillo"]),
-        estanteria=int(row["estanteria"]),
-        altura=int(row["altura"]),
-        descripcion=row["descripcion"],
-        is_active=bool(row["is_active"]),
-        created_at=datetime.fromisoformat(row["created_at"]),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
-    )
+from app.db.models.ubicaciones import UbicacionEstanteria
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class UbicacionRepository:
-    def __init__(self, db: SQLiteDatabase) -> None:
-        self._db = db
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
 
-    def list_by_bodega(self, id_bodega: uuid.UUID) -> list[UbicacionRecord]:
-        rows = self._db.query_all(
-            """
-            SELECT * FROM ubicaciones_estanteria
-            WHERE id_bodega = ?
-            ORDER BY pasillo, estanteria, altura
-            """,
-            (str(id_bodega),),
+    # ----------------------------------------------------------------- READ
+
+    async def list_by_bodega(self, id_bodega: uuid.UUID) -> list[UbicacionEstanteria]:
+        stmt = (
+            select(UbicacionEstanteria)
+            .where(UbicacionEstanteria.id_bodega == id_bodega)
+            .order_by(
+                UbicacionEstanteria.pasillo,
+                UbicacionEstanteria.estanteria,
+                UbicacionEstanteria.altura,
+            )
         )
-        return [_to_ubicacion(row) for row in rows]
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
-    def get_by_id(self, ubicacion_id: uuid.UUID) -> UbicacionRecord | None:
-        row = self._db.query_one(
-            "SELECT * FROM ubicaciones_estanteria WHERE id = ?",
-            (str(ubicacion_id),),
-        )
-        return _to_ubicacion(row) if row is not None else None
+    async def get_by_id(self, ubicacion_id: uuid.UUID) -> UbicacionEstanteria | None:
+        return await self._session.get(UbicacionEstanteria, ubicacion_id)
 
-    def find_by_slot(
+    async def find_by_slot(
         self,
         id_bodega: uuid.UUID,
         pasillo: int,
         estanteria: int,
         altura: int,
-    ) -> UbicacionRecord | None:
-        row = self._db.query_one(
-            """
-            SELECT * FROM ubicaciones_estanteria
-            WHERE id_bodega = ? AND pasillo = ? AND estanteria = ? AND altura = ?
-            """,
-            (str(id_bodega), pasillo, estanteria, altura),
+    ) -> UbicacionEstanteria | None:
+        stmt = select(UbicacionEstanteria).where(
+            UbicacionEstanteria.id_bodega == id_bodega,
+            UbicacionEstanteria.pasillo == pasillo,
+            UbicacionEstanteria.estanteria == estanteria,
+            UbicacionEstanteria.altura == altura,
         )
-        return _to_ubicacion(row) if row is not None else None
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
-    def add(self, ubicacion: UbicacionRecord) -> UbicacionRecord:
-        self._db.execute(
-            """
-            INSERT INTO ubicaciones_estanteria (
-                id, id_bodega, pasillo, estanteria, altura,
-                descripcion, is_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(ubicacion.id),
-                str(ubicacion.id_bodega),
-                ubicacion.pasillo,
-                ubicacion.estanteria,
-                ubicacion.altura,
-                ubicacion.descripcion,
-                int(ubicacion.is_active),
-                ubicacion.created_at.isoformat(),
-                ubicacion.updated_at.isoformat(),
-            ),
-        )
+    # --------------------------------------------------------------- WRITE
+
+    async def add(self, ubicacion: UbicacionEstanteria) -> UbicacionEstanteria:
+        self._session.add(ubicacion)
+        await self._session.flush()
         return ubicacion
 
-    def update(
+    async def update(
         self,
-        ubicacion_id: uuid.UUID,
+        ubicacion: UbicacionEstanteria,
         *,
         descripcion: str | None = None,
         is_active: bool | None = None,
-        updated_at: datetime | None = None,
-    ) -> None:
-        sets: list[str] = []
-        params: list[Any] = []
+    ) -> UbicacionEstanteria:
         if descripcion is not None:
-            sets.append("descripcion = ?")
-            params.append(descripcion)
+            ubicacion.descripcion = descripcion
         if is_active is not None:
-            sets.append("is_active = ?")
-            params.append(int(is_active))
-        if updated_at is not None:
-            sets.append("updated_at = ?")
-            params.append(updated_at.isoformat())
-        if not sets:
-            return
-        params.append(str(ubicacion_id))
-        self._db.execute(
-            f"UPDATE ubicaciones_estanteria SET {', '.join(sets)} WHERE id = ?",  # noqa: S608
-            tuple(params),
-        )
+            ubicacion.is_active = is_active
+        await self._session.flush()
+        return ubicacion
 
-    def soft_delete(self, ubicacion_id: uuid.UUID, updated_at: datetime) -> None:
-        self._db.execute(
-            """
-            UPDATE ubicaciones_estanteria
-            SET is_active = 0, updated_at = ?
-            WHERE id = ?
-            """,
-            (updated_at.isoformat(), str(ubicacion_id)),
-        )
+    async def soft_delete(self, ubicacion: UbicacionEstanteria) -> None:
+        ubicacion.is_active = False
+        await self._session.flush()
+
+
+__all__ = ["UbicacionRepository"]

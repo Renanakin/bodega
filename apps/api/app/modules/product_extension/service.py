@@ -1,9 +1,13 @@
 """
-Service del sub-recurso ``detalles_neumaticos`` (Fase 2).
+Service del sub-recurso ``detalles_neumaticos`` (async).
 
 Garantiza que el producto asociado existe antes de crear/modificar el
 detalle (FK ya valida en el INSERT, pero verificamos antes para devolver
 404 limpio en vez de 500 por IntegrityError).
+
+Convenciones:
+- Métodos ``async def``.
+- ``await session.commit()`` + ``refresh()`` después de mutaciones.
 """
 
 from __future__ import annotations
@@ -11,37 +15,38 @@ from __future__ import annotations
 import uuid
 
 from app.core.errors import DetalleNeumaticoNotFoundError, ProductNotFoundError
-from app.modules.product_extension.repository import (
-    DetalleNeumaticoRecord,
-    DetalleNeumaticoRepository,
-)
+from app.db.models.product_extension import DetalleNeumatico
+from app.modules.product_extension.repository import DetalleNeumaticoRepository
 from app.modules.product_extension.schemas import DetalleNeumaticoUpsert
 from app.modules.products.repository import ProductRepository
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class DetalleNeumaticoService:
     def __init__(
         self,
-        repository: DetalleNeumaticoRepository,
-        product_repository: ProductRepository,
+        session: AsyncSession,
+        repository: DetalleNeumaticoRepository | None = None,
+        product_repository: ProductRepository | None = None,
     ) -> None:
-        self._repository = repository
-        self._products = product_repository
+        self._session = session
+        self._repository = repository or DetalleNeumaticoRepository(session)
+        self._products = product_repository or ProductRepository(session)
 
-    def get(self, producto_id: uuid.UUID) -> DetalleNeumaticoRecord:
-        if self._products.get_by_id(producto_id) is None:
+    async def get(self, producto_id: uuid.UUID) -> DetalleNeumatico:
+        if await self._products.get_by_id(producto_id) is None:
             raise ProductNotFoundError(str(producto_id))
-        record = self._repository.get_by_producto(producto_id)
+        record = await self._repository.get_by_producto(producto_id)
         if record is None:
             raise DetalleNeumaticoNotFoundError(str(producto_id))
         return record
 
-    def upsert(
+    async def upsert(
         self, producto_id: uuid.UUID, payload: DetalleNeumaticoUpsert
-    ) -> DetalleNeumaticoRecord:
-        if self._products.get_by_id(producto_id) is None:
+    ) -> DetalleNeumatico:
+        if await self._products.get_by_id(producto_id) is None:
             raise ProductNotFoundError(str(producto_id))
-        record = DetalleNeumaticoRecord(
+        detalle = DetalleNeumatico(
             producto_id=producto_id,
             ancho=payload.ancho,
             perfil=payload.perfil,
@@ -50,12 +55,22 @@ class DetalleNeumaticoService:
             indice_velocidad=payload.indice_velocidad,
             dot=payload.dot,
         )
-        self._repository.upsert(record)
-        return record
+        await self._repository.upsert(detalle)
+        await self._session.commit()
+        # Refrescar para obtener el estado final (por si merge hizo UPDATE).
+        refreshed = await self._repository.get_by_producto(producto_id)
+        if refreshed is None:
+            # No debería pasar, pero defensivo.
+            raise DetalleNeumaticoNotFoundError(str(producto_id))
+        return refreshed
 
-    def delete(self, producto_id: uuid.UUID) -> None:
-        if self._products.get_by_id(producto_id) is None:
+    async def delete(self, producto_id: uuid.UUID) -> None:
+        if await self._products.get_by_id(producto_id) is None:
             raise ProductNotFoundError(str(producto_id))
-        deleted = self._repository.delete(producto_id)
+        deleted = await self._repository.delete(producto_id)
+        await self._session.commit()
         if deleted == 0:
             raise DetalleNeumaticoNotFoundError(str(producto_id))
+
+
+__all__ = ["DetalleNeumaticoService"]

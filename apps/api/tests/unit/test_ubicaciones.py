@@ -1,5 +1,5 @@
 """
-Tests del módulo de ubicaciones (Fase 2).
+Tests del módulo de ubicaciones (migrado a Depends(get_session)).
 
 Cubre:
 - Crear ubicación simple en una bodega.
@@ -9,14 +9,28 @@ Cubre:
 - Soft delete.
 - Bodega inexistente → 404.
 - Ubicación inexistente → 404.
+
+Migrado: usa ``DATABASE_URL=sqlite+aiosqlite:///<archivo>`` + schema async
++ seed del admin via AsyncSession. Ya no depende de ``app.state.db`` legacy.
 """
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
-from uuid import uuid4
+import uuid
 
-from app.db.session import utcnow
+from app.core.config import reset_settings_cache
+from app.db import models  # noqa: F401
+from app.db.base import Base
+from app.db.models.users import User
+from app.db.session import (
+    get_engine,
+    get_session_factory,
+    reset_engine_cache,
+    utcnow,
+)
 from app.main import create_app
 from app.modules.auth.security import hash_password
 from fastapi.testclient import TestClient
@@ -30,26 +44,10 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['token']}"}
 
 
-def _create_user(db, role: str = "admin") -> None:
-    now = utcnow().isoformat()
-    db.execute(
-        """
-        INSERT INTO users (id, username, full_name, role, password_hash, is_active, created_at)
-        VALUES (?, ?, ?, ?, ?, 1, ?)
-        """,
-        (
-            str(uuid4()),
-            "admin",
-            "Admin",
-            role,
-            hash_password("demo123"),
-            now,
-        ),
-    )
-
-
-def _create_warehouse(client: TestClient, headers: dict[str, str], name_suffix: str = "") -> str:
-    code = f"W-{uuid4().hex[:6].upper()}"
+def _create_warehouse(
+    client: TestClient, headers: dict[str, str], name_suffix: str = ""
+) -> str:
+    code = f"W-{uuid.uuid4().hex[:6].upper()}"
     resp = client.post(
         "/api/v1/warehouses",
         json={"code": code, "name": f"Test WH{name_suffix}", "warehouse_type": "principal"},
@@ -59,17 +57,71 @@ def _create_warehouse(client: TestClient, headers: dict[str, str], name_suffix: 
     return resp.json()["id"]
 
 
-class UbicacionesTestCase(unittest.TestCase):
-    def setUp(self) -> None:
-        self.app = create_app(db_path=":memory:")
+class _AsyncTestBase(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp(prefix="bodega-ubicaciones-")
+        self._db_path = os.path.join(self._tmpdir, "test.db")
+        db_url = f"sqlite+aiosqlite:///{self._db_path}"
+
+        self._saved_env: dict[str, str | None] = {}
+        for key in (
+            "DATABASE_URL",
+            "ENVIRONMENT",
+            "JWT_SECRET",
+            "SECRET_KEY",
+            "REDIS_URL",
+        ):
+            self._saved_env[key] = os.environ.get(key)
+        os.environ["DATABASE_URL"] = db_url
+        os.environ["ENVIRONMENT"] = "development"
+        os.environ.setdefault("JWT_SECRET", "x" * 32)
+        os.environ.setdefault("SECRET_KEY", "x" * 32)
+        os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+        reset_settings_cache()
+        reset_engine_cache()
+
+        self.app = create_app()
         self.client = TestClient(self.app)
-        _create_user(self.app.state.db, "admin")
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        factory = get_session_factory()
+        async with factory() as session:
+            session.add(
+                User(
+                    id=uuid.uuid4(),
+                    username="admin",
+                    full_name="Admin",
+                    role="admin",
+                    password_hash=hash_password("demo123"),
+                    is_active=True,
+                    created_at=utcnow(),
+                )
+            )
+            await session.commit()
+
         self.headers = _auth_headers(self.client)
         self.bodega_id = _create_warehouse(self.client, self.headers, name_suffix="-A")
 
-    def tearDown(self) -> None:
-        self.app.state.db.close()
+    async def asyncTearDown(self) -> None:
+        await get_engine().dispose()
+        reset_engine_cache()
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        reset_settings_cache()
+        try:
+            os.remove(self._db_path)
+            os.rmdir(self._tmpdir)
+        except OSError:
+            pass
 
+
+class UbicacionesTestCase(_AsyncTestBase):
     def test_create_and_list_ubicacion(self) -> None:
         create_resp = self.client.post(
             f"/api/v1/bodegas/{self.bodega_id}/ubicaciones",
@@ -127,20 +179,22 @@ class UbicacionesTestCase(unittest.TestCase):
 
     def test_bodega_not_found(self) -> None:
         resp = self.client.get(
-            f"/api/v1/bodegas/{uuid4()}/ubicaciones",
+            f"/api/v1/bodegas/{uuid.uuid4()}/ubicaciones",
             headers=self.headers,
         )
         self.assertEqual(resp.status_code, 404)
 
         post_resp = self.client.post(
-            f"/api/v1/bodegas/{uuid4()}/ubicaciones",
+            f"/api/v1/bodegas/{uuid.uuid4()}/ubicaciones",
             json={"pasillo": 1, "estanteria": 1, "altura": 1},
             headers=self.headers,
         )
         self.assertEqual(post_resp.status_code, 404)
 
     def test_ubicacion_not_found(self) -> None:
-        resp = self.client.get(f"/api/v1/ubicaciones/{uuid4()}", headers=self.headers)
+        resp = self.client.get(
+            f"/api/v1/ubicaciones/{uuid.uuid4()}", headers=self.headers
+        )
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["detail"]["code"], "ubicacion_not_found")
 
@@ -177,11 +231,15 @@ class UbicacionesTestCase(unittest.TestCase):
             headers=self.headers,
         ).json()["id"]
 
-        delete_resp = self.client.delete(f"/api/v1/ubicaciones/{ub_id}", headers=self.headers)
+        delete_resp = self.client.delete(
+            f"/api/v1/ubicaciones/{ub_id}", headers=self.headers
+        )
         self.assertEqual(delete_resp.status_code, 204)
 
         # Detalle sigue accesible pero is_active=False
-        detail = self.client.get(f"/api/v1/ubicaciones/{ub_id}", headers=self.headers).json()
+        detail = self.client.get(
+            f"/api/v1/ubicaciones/{ub_id}", headers=self.headers
+        ).json()
         self.assertFalse(detail["is_active"])
 
         # Listado sigue mostrando la fila (no se borra)

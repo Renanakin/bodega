@@ -1,8 +1,9 @@
 """
-Repository de stock por ubicación (Fase 2).
+Repository de stock por ubicación (async, SQLAlchemy 2.0).
 
 Operaciones sobre ``inventario_stock_real`` (Nivel 2 — granularidad
-por ubicación) usando el ``SQLiteDatabase`` legacy.
+por ubicación) usando ``AsyncSession`` y el modelo ORM
+``InventarioStockReal``.
 
 R3/R4: este repository NO escribe ``stock_levels`` (Nivel 1). El
 ``MovementEngine`` es el único que mantiene ambos sincronizados.
@@ -11,89 +12,63 @@ R3/R4: este repository NO escribe ``stock_levels`` (Nivel 1). El
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
-from typing import Any
 
-from app.db.session import SQLiteDatabase
-
-
-@dataclass(slots=True)
-class StockRealRecord:
-    id_producto: uuid.UUID
-    id_ubicacion: uuid.UUID
-    cantidad: Decimal
-    updated_at: datetime
-
-
-def _to_stock_real(row: Any) -> StockRealRecord:
-    return StockRealRecord(
-        id_producto=uuid.UUID(row["id_producto"]),
-        id_ubicacion=uuid.UUID(row["id_ubicacion"]),
-        cantidad=Decimal(str(row["cantidad"])),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
-    )
+from app.db.models.stock_real import InventarioStockReal
+from app.db.models.ubicaciones import UbicacionEstanteria
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class StockRealRepository:
-    def __init__(self, db: SQLiteDatabase) -> None:
-        self._db = db
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
 
-    def list(
+    async def list(
         self,
         *,
         warehouse_id: uuid.UUID | None = None,
         product_id: uuid.UUID | None = None,
-    ) -> list[StockRealRecord]:
+    ) -> list[InventarioStockReal]:
         """Consulta granular; JOIN a ubicaciones cuando se filtra por bodega."""
-        clauses: list[str] = []
-        params: list[Any] = []
-        join = ""
+        stmt = select(InventarioStockReal)
         if warehouse_id is not None:
-            join = " JOIN ubicaciones_estanteria u ON u.id = sr.id_ubicacion "
-            clauses.append("u.id_bodega = ?")
-            params.append(str(warehouse_id))
+            stmt = stmt.join(
+                UbicacionEstanteria,
+                UbicacionEstanteria.id == InventarioStockReal.id_ubicacion,
+            ).where(UbicacionEstanteria.id_bodega == warehouse_id)
         if product_id is not None:
-            clauses.append("sr.id_producto = ?")
-            params.append(str(product_id))
-        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = self._db.query_all(
-            f"SELECT sr.* FROM inventario_stock_real sr{join}{where}",  # noqa: S608
-            tuple(params),
-        )
-        return [_to_stock_real(row) for row in rows]
+            stmt = stmt.where(InventarioStockReal.id_producto == product_id)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
 
-    def get(self, id_producto: uuid.UUID, id_ubicacion: uuid.UUID) -> StockRealRecord | None:
-        row = self._db.query_one(
-            """
-            SELECT * FROM inventario_stock_real
-            WHERE id_producto = ? AND id_ubicacion = ?
-            """,
-            (str(id_producto), str(id_ubicacion)),
-        )
-        return _to_stock_real(row) if row is not None else None
+    async def get(
+        self, id_producto: uuid.UUID, id_ubicacion: uuid.UUID
+    ) -> InventarioStockReal | None:
+        return await self._session.get(InventarioStockReal, (id_producto, id_ubicacion))
 
-    def upsert(
+    async def upsert(
         self,
         id_producto: uuid.UUID,
         id_ubicacion: uuid.UUID,
         cantidad: Decimal,
-        updated_at: datetime,
-    ) -> None:
-        self._db.execute(
-            """
-            INSERT INTO inventario_stock_real (
-                id_producto, id_ubicacion, cantidad, updated_at
-            ) VALUES (?, ?, ?, ?)
-            ON CONFLICT(id_producto, id_ubicacion) DO UPDATE SET
-                cantidad = excluded.cantidad,
-                updated_at = excluded.updated_at
-            """,
-            (
-                str(id_producto),
-                str(id_ubicacion),
-                str(cantidad),
-                updated_at.isoformat(),
-            ),
+    ) -> InventarioStockReal:
+        """Idempotente: si ya existe fila para (id_producto, id_ubicacion),
+        actualiza; si no, inserta.
+        """
+        existing = await self.get(id_producto, id_ubicacion)
+        if existing is not None:
+            existing.cantidad = cantidad
+            await self._session.flush()
+            return existing
+        new_row = InventarioStockReal(
+            id_producto=id_producto,
+            id_ubicacion=id_ubicacion,
+            cantidad=cantidad,
         )
+        self._session.add(new_row)
+        await self._session.flush()
+        return new_row
+
+
+__all__ = ["StockRealRepository"]
