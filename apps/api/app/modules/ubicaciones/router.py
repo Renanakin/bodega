@@ -67,9 +67,11 @@ async def create_ubicacion(
     payload: UbicacionCreate,
     user=Depends(require_roles("admin", "supervisor")),
     service: UbicacionService = Depends(get_ubicacion_service),
+    session: AsyncSession = Depends(get_session),
 ) -> UbicacionResponse:
     ubicacion = await service.create_ubicacion(id_bodega, payload)
     await record_audit(
+        session=session,
         user_id=user.id,
         action="ubicacion.create",
         entity_type="ubicacion",
@@ -101,9 +103,11 @@ async def update_ubicacion(
     payload: UbicacionUpdate,
     user=Depends(require_roles("admin", "supervisor")),
     service: UbicacionService = Depends(get_ubicacion_service),
+    session: AsyncSession = Depends(get_session),
 ) -> UbicacionResponse:
     ubicacion = await service.update_ubicacion(ubicacion_id, payload)
     await record_audit(
+        session=session,
         user_id=user.id,
         action="ubicacion.update",
         entity_type="ubicacion",
@@ -122,9 +126,11 @@ async def delete_ubicacion(
     ubicacion_id: UUID,
     user=Depends(require_roles("admin", "supervisor")),
     service: UbicacionService = Depends(get_ubicacion_service),
+    session: AsyncSession = Depends(get_session),
 ) -> None:
     await service.delete_ubicacion(ubicacion_id)
     await record_audit(
+        session=session,
         user_id=user.id,
         action="ubicacion.delete",
         entity_type="ubicacion",

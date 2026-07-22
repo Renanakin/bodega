@@ -75,9 +75,11 @@ async def create_category(
     payload: CategoryCreate,
     user=Depends(require_roles("admin", "supervisor")),
     service: CategoryService = Depends(get_category_service),
+    session: AsyncSession = Depends(get_session),
 ) -> CategoryResponse:
     category = await service.create_category(payload)
     await record_audit(
+        session=session,
         user_id=user.id,
         action="category.create",
         entity_type="category",
@@ -103,9 +105,11 @@ async def update_category(
     payload: CategoryUpdate,
     user=Depends(require_roles("admin", "supervisor")),
     service: CategoryService = Depends(get_category_service),
+    session: AsyncSession = Depends(get_session),
 ) -> CategoryResponse:
     category = await service.update_category(category_id, payload)
     await record_audit(
+        session=session,
         user_id=user.id,
         action="category.update",
         entity_type="category",
@@ -124,9 +128,11 @@ async def delete_category(
     category_id: UUID,
     user=Depends(require_roles("admin", "supervisor")),
     service: CategoryService = Depends(get_category_service),
+    session: AsyncSession = Depends(get_session),
 ) -> None:
     await service.delete_category(category_id)
     await record_audit(
+        session=session,
         user_id=user.id,
         action="category.delete",
         entity_type="category",

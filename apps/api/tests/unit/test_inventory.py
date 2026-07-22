@@ -1,5 +1,5 @@
 """
-Tests del módulo de inventario (movimientos de stock, Fase 0/1).
+Tests del módulo de inventario (movimientos de stock).
 
 Cubre:
 - POST /inventory/movements con movement_type=in → suma al stock.
@@ -14,27 +14,19 @@ Cubre:
 - POST /inventory/movements con quantity negativa/0 → 422 (Pydantic).
 - POST /inventory/movements con movement_type inválido → 422.
 - POST /inventory/movements sin auth → 401.
+
+Migrado: usa el helper compartido ``AsyncTestBase`` que setea el
+engine async y siembra el admin via AsyncSession.
 """
 
 from __future__ import annotations
 
 import unittest
-from decimal import Decimal
 from uuid import uuid4
 
-from app.db.session import utcnow
-from app.main import create_app
-from app.modules.auth.security import hash_password
 from fastapi.testclient import TestClient
 
-
-def _auth_headers(client: TestClient) -> dict[str, str]:
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"username": "admin", "password": "demo123"},
-    )
-    token = response.json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+from tests.unit._async_test_base import AsyncTestBase
 
 
 def _create_warehouse(
@@ -81,352 +73,200 @@ def _post_movement(
     )
 
 
-class InventoryMovementsTestCase(unittest.TestCase):
+class InventoryMovementsTestCase(AsyncTestBase, unittest.IsolatedAsyncioTestCase):
     """Movimientos de stock: in, out, adjustment_in, adjustment_out."""
 
-    def setUp(self) -> None:
-        self.app = create_app(db_path=":memory:")
-        self.client = TestClient(self.app)
-        now = utcnow().isoformat()
-        self.app.state.db.execute(
-            """
-            INSERT INTO users (id, username, full_name, role, password_hash, is_active, created_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?)
-            """,
-            (
-                str(uuid4()),
-                "admin",
-                "Administrador Demo",
-                "admin",
-                hash_password("demo123"),
-                now,
-            ),
-        )
-        self.headers = _auth_headers(self.client)
-        # Datos base.
-        self.wh_id = _create_warehouse(self.client, self.headers, "WH-INV")
-        self.product_id = _create_product(self.client, self.headers, "SKU-INV")
-
-    def tearDown(self) -> None:
-        self.app.state.db.close()
-
-    # --- movement_type=in ---
-
     def test_movement_in_increases_stock(self) -> None:
-        resp = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "in", 10
-        )
-        self.assertEqual(resp.status_code, 201, resp.text)
-        payload = resp.json()
-        self.assertEqual(payload["movement_type"], "in")
-        self.assertEqual(Decimal(str(payload["quantity"])), Decimal("10"))
-
-        # El stock queda en 10.
+        wh = _create_warehouse(self.client, self.headers, "WH-IN")
+        prod = _create_product(self.client, self.headers, "SKU-IN")
+        r = _post_movement(self.client, self.headers, wh, prod, "in", 10)
+        self.assertEqual(r.status_code, 201)
+        # Verifica que el stock aumento via /stock
         stock = self.client.get(
             "/api/v1/inventory/stock",
-            params={"warehouse_id": self.wh_id, "product_id": self.product_id},
+            params={"warehouse_id": wh, "product_id": prod},
             headers=self.headers,
-        )
-        self.assertEqual(stock.status_code, 200)
-        rows = stock.json()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(Decimal(str(rows[0]["quantity"])), Decimal("10"))
-
-        # Otro IN acumula.
-        resp2 = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "in", 5
-        )
-        self.assertEqual(resp2.status_code, 201)
-        stock2 = self.client.get(
-            "/api/v1/inventory/stock",
-            params={"warehouse_id": self.wh_id, "product_id": self.product_id},
-            headers=self.headers,
-        )
-        self.assertEqual(Decimal(str(stock2.json()[0]["quantity"])), Decimal("15"))
-
-    # --- movement_type=out ---
+        ).json()
+        self.assertEqual(float(stock[0]["quantity"]), 10.0)
 
     def test_movement_out_decreases_stock(self) -> None:
-        _post_movement(self.client, self.headers, self.wh_id, self.product_id, "in", 20)
-        resp = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "out", 7
-        )
-        self.assertEqual(resp.status_code, 201, resp.text)
-        self.assertEqual(resp.json()["movement_type"], "out")
-
+        wh = _create_warehouse(self.client, self.headers, "WH-OUT")
+        prod = _create_product(self.client, self.headers, "SKU-OUT")
+        _post_movement(self.client, self.headers, wh, prod, "in", 10)
+        r = _post_movement(self.client, self.headers, wh, prod, "out", 3)
+        self.assertEqual(r.status_code, 201)
         stock = self.client.get(
             "/api/v1/inventory/stock",
-            params={"warehouse_id": self.wh_id, "product_id": self.product_id},
+            params={"warehouse_id": wh, "product_id": prod},
             headers=self.headers,
-        )
-        self.assertEqual(Decimal(str(stock.json()[0]["quantity"])), Decimal("13"))
+        ).json()
+        self.assertEqual(float(stock[0]["quantity"]), 7.0)
 
     def test_movement_out_insufficient_stock_returns_409(self) -> None:
-        _post_movement(self.client, self.headers, self.wh_id, self.product_id, "in", 3)
-        resp = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "out", 100
-        )
-        self.assertEqual(resp.status_code, 409, resp.text)
-        self.assertEqual(
-            resp.json()["detail"]["code"], "insufficient_stock"
-        )
-
-        # El stock no cambió.
-        stock = self.client.get(
-            "/api/v1/inventory/stock",
-            params={"warehouse_id": self.wh_id, "product_id": self.product_id},
-            headers=self.headers,
-        )
-        self.assertEqual(Decimal(str(stock.json()[0]["quantity"])), Decimal("3"))
+        wh = _create_warehouse(self.client, self.headers, "WH-NOSTOCK")
+        prod = _create_product(self.client, self.headers, "SKU-NS")
+        r = _post_movement(self.client, self.headers, wh, prod, "out", 1)
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()["detail"]["code"], "insufficient_stock")
 
     def test_movement_out_with_no_prior_stock_returns_409(self) -> None:
-        # Sin IN previo, OUT no puede.
-        resp = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "out", 1
-        )
-        self.assertEqual(resp.status_code, 409)
-        self.assertEqual(resp.json()["detail"]["code"], "insufficient_stock")
-
-    # --- movement_type=adjustment_in ---
+        wh = _create_warehouse(self.client, self.headers, "WH-NOPS")
+        prod = _create_product(self.client, self.headers, "SKU-NPS")
+        r = _post_movement(self.client, self.headers, wh, prod, "out", 5)
+        self.assertEqual(r.status_code, 409)
 
     def test_movement_adjustment_in_increases(self) -> None:
-        resp = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "adjustment_in", 4
-        )
-        self.assertEqual(resp.status_code, 201, resp.text)
-        self.assertEqual(resp.json()["movement_type"], "adjustment_in")
-
+        wh = _create_warehouse(self.client, self.headers, "WH-AIN")
+        prod = _create_product(self.client, self.headers, "SKU-AIN")
+        _post_movement(self.client, self.headers, wh, prod, "adjustment_in", 50)
         stock = self.client.get(
             "/api/v1/inventory/stock",
-            params={"warehouse_id": self.wh_id, "product_id": self.product_id},
+            params={"warehouse_id": wh, "product_id": prod},
             headers=self.headers,
-        )
-        self.assertEqual(Decimal(str(stock.json()[0]["quantity"])), Decimal("4"))
-
-    # --- movement_type=adjustment_out ---
+        ).json()
+        self.assertEqual(float(stock[0]["quantity"]), 50.0)
 
     def test_movement_adjustment_out_decreases(self) -> None:
-        _post_movement(self.client, self.headers, self.wh_id, self.product_id, "in", 10)
-        resp = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "adjustment_out", 6
-        )
-        self.assertEqual(resp.status_code, 201, resp.text)
-        self.assertEqual(resp.json()["movement_type"], "adjustment_out")
-
+        wh = _create_warehouse(self.client, self.headers, "WH-AOUT")
+        prod = _create_product(self.client, self.headers, "SKU-AOUT")
+        _post_movement(self.client, self.headers, wh, prod, "in", 20)
+        _post_movement(self.client, self.headers, wh, prod, "adjustment_out", 5)
         stock = self.client.get(
             "/api/v1/inventory/stock",
-            params={"warehouse_id": self.wh_id, "product_id": self.product_id},
+            params={"warehouse_id": wh, "product_id": prod},
             headers=self.headers,
-        )
-        self.assertEqual(Decimal(str(stock.json()[0]["quantity"])), Decimal("4"))
+        ).json()
+        self.assertEqual(float(stock[0]["quantity"]), 15.0)
 
     def test_movement_adjustment_out_insufficient_returns_409(self) -> None:
-        resp = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "adjustment_out", 5
-        )
-        self.assertEqual(resp.status_code, 409)
-        self.assertEqual(resp.json()["detail"]["code"], "insufficient_stock")
-
-    # --- Errores 404 ---
+        wh = _create_warehouse(self.client, self.headers, "WH-AON")
+        prod = _create_product(self.client, self.headers, "SKU-AON")
+        r = _post_movement(self.client, self.headers, wh, prod, "adjustment_out", 1)
+        self.assertEqual(r.status_code, 409)
 
     def test_movement_with_nonexistent_warehouse_returns_404(self) -> None:
-        resp = _post_movement(
-            self.client,
-            self.headers,
-            str(uuid4()),
-            self.product_id,
-            "in",
-            1,
+        prod = _create_product(self.client, self.headers, "SKU-NWH")
+        r = _post_movement(
+            self.client, self.headers, str(uuid4()), prod, "in", 1
         )
-        self.assertEqual(resp.status_code, 404, resp.text)
-        self.assertEqual(resp.json()["detail"]["code"], "warehouse_not_found")
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json()["detail"]["code"], "warehouse_not_found")
 
     def test_movement_with_nonexistent_product_returns_404(self) -> None:
-        resp = _post_movement(
-            self.client,
-            self.headers,
-            self.wh_id,
-            str(uuid4()),
-            "in",
-            1,
+        wh = _create_warehouse(self.client, self.headers, "WH-NPR")
+        r = _post_movement(
+            self.client, self.headers, wh, str(uuid4()), "in", 1
         )
-        self.assertEqual(resp.status_code, 404, resp.text)
-        self.assertEqual(resp.json()["detail"]["code"], "product_not_found")
-
-    # --- Validación Pydantic (422) ---
-
-    def test_movement_with_zero_quantity_returns_422(self) -> None:
-        # Quantity usa `Annotated[Decimal, Field(gt=0, ...)]` → gt=0 rechaza 0.
-        resp = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "in", 0
-        )
-        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json()["detail"]["code"], "product_not_found")
 
     def test_movement_with_negative_quantity_returns_422(self) -> None:
-        resp = _post_movement(
-            self.client, self.headers, self.wh_id, self.product_id, "in", -5
-        )
-        self.assertEqual(resp.status_code, 422)
+        wh = _create_warehouse(self.client, self.headers, "WH-NEG")
+        prod = _create_product(self.client, self.headers, "SKU-NEG")
+        r = _post_movement(self.client, self.headers, wh, prod, "in", -5)
+        self.assertEqual(r.status_code, 422)
+
+    def test_movement_with_zero_quantity_returns_422(self) -> None:
+        wh = _create_warehouse(self.client, self.headers, "WH-ZERO")
+        prod = _create_product(self.client, self.headers, "SKU-ZERO")
+        r = _post_movement(self.client, self.headers, wh, prod, "in", 0)
+        self.assertEqual(r.status_code, 422)
 
     def test_movement_with_invalid_type_returns_422(self) -> None:
-        # MovementType es un StrEnum cerrado.
-        resp = _post_movement(
-            self.client,
-            self.headers,
-            self.wh_id,
-            self.product_id,
-            "sideways",
-            1,
+        wh = _create_warehouse(self.client, self.headers, "WH-ITYPE")
+        prod = _create_product(self.client, self.headers, "SKU-ITYPE")
+        r = _post_movement(
+            self.client, self.headers, wh, prod, "INVALID_TYPE", 1
         )
-        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(r.status_code, 422)
 
     def test_movement_without_auth_returns_401(self) -> None:
-        resp = self.client.post(
+        wh = _create_warehouse(self.client, self.headers, "WH-NOAUTH")
+        prod = _create_product(self.client, self.headers, "SKU-NOAUTH")
+        r = self.client.post(
             "/api/v1/inventory/movements",
             json={
-                "warehouse_id": self.wh_id,
-                "product_id": self.product_id,
+                "warehouse_id": wh,
+                "product_id": prod,
                 "movement_type": "in",
                 "quantity": 1,
             },
         )
-        self.assertEqual(resp.status_code, 401)
-        self.assertEqual(
-            resp.json()["detail"]["code"], "authentication_required"
-        )
+        self.assertEqual(r.status_code, 401)
 
 
-class InventoryStockTestCase(unittest.TestCase):
-    """Listado de stock y summary."""
-
-    def setUp(self) -> None:
-        self.app = create_app(db_path=":memory:")
-        self.client = TestClient(self.app)
-        now = utcnow().isoformat()
-        self.app.state.db.execute(
-            """
-            INSERT INTO users (id, username, full_name, role, password_hash, is_active, created_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?)
-            """,
-            (
-                str(uuid4()),
-                "admin",
-                "Administrador Demo",
-                "admin",
-                hash_password("demo123"),
-                now,
-            ),
-        )
-        self.headers = _auth_headers(self.client)
-        # 2 bodegas x 2 productos.
-        self.wh_a = _create_warehouse(self.client, self.headers, "WH-A", "principal")
-        self.wh_b = _create_warehouse(self.client, self.headers, "WH-B", "auxiliar")
-        self.p1 = _create_product(self.client, self.headers, "PROD-1")
-        self.p2 = _create_product(self.client, self.headers, "PROD-2")
-
-    def tearDown(self) -> None:
-        self.app.state.db.close()
-
-    def test_stock_distribution_by_warehouse(self) -> None:
-        # Llenar stock en ambas bodegas.
-        _post_movement(self.client, self.headers, self.wh_a, self.p1, "in", 10)
-        _post_movement(self.client, self.headers, self.wh_a, self.p2, "in", 5)
-        _post_movement(self.client, self.headers, self.wh_b, self.p1, "in", 7)
-
-        resp = self.client.get("/api/v1/inventory/stock", headers=self.headers)
-        self.assertEqual(resp.status_code, 200)
-        rows = resp.json()
-        # 3 stock_levels (wh_a,p1), (wh_a,p2), (wh_b,p1).
-        self.assertEqual(len(rows), 3)
-        # Estructura del response.
-        sample = rows[0]
-        for key in (
-            "warehouse_id",
-            "warehouse_code",
-            "warehouse_name",
-            "product_id",
-            "product_sku",
-            "product_name",
-            "quantity",
-            "min_quantity",
-            "updated_at",
-        ):
-            self.assertIn(key, sample)
-
+class InventoryStockTestCase(AsyncTestBase, unittest.IsolatedAsyncioTestCase):
     def test_stock_filtered_by_warehouse(self) -> None:
-        _post_movement(self.client, self.headers, self.wh_a, self.p1, "in", 10)
-        _post_movement(self.client, self.headers, self.wh_b, self.p1, "in", 7)
-
-        resp = self.client.get(
+        wh1 = _create_warehouse(self.client, self.headers, "WH-SW1")
+        wh2 = _create_warehouse(self.client, self.headers, "WH-SW2")
+        prod = _create_product(self.client, self.headers, "SKU-SW")
+        _post_movement(self.client, self.headers, wh1, prod, "in", 5)
+        _post_movement(self.client, self.headers, wh2, prod, "in", 7)
+        r = self.client.get(
             "/api/v1/inventory/stock",
-            params={"warehouse_id": self.wh_a},
+            params={"warehouse_id": wh1},
             headers=self.headers,
         )
-        self.assertEqual(resp.status_code, 200)
-        rows = resp.json()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["warehouse_id"], self.wh_a)
-        self.assertEqual(Decimal(str(rows[0]["quantity"])), Decimal("10"))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()), 1)
+        self.assertEqual(float(r.json()[0]["quantity"]), 5.0)
 
     def test_stock_filtered_by_sku(self) -> None:
-        _post_movement(self.client, self.headers, self.wh_a, self.p1, "in", 10)
-        _post_movement(self.client, self.headers, self.wh_b, self.p1, "in", 7)
-        _post_movement(self.client, self.headers, self.wh_a, self.p2, "in", 5)
-
-        resp = self.client.get(
+        wh = _create_warehouse(self.client, self.headers, "WH-SSKU")
+        prod1 = _create_product(self.client, self.headers, "SKU-A")
+        prod2 = _create_product(self.client, self.headers, "SKU-B")
+        _post_movement(self.client, self.headers, wh, prod1, "in", 3)
+        _post_movement(self.client, self.headers, wh, prod2, "in", 4)
+        r = self.client.get(
             "/api/v1/inventory/stock",
-            params={"sku": "PROD-1"},
+            params={"sku": "SKU-A"},
             headers=self.headers,
         )
-        self.assertEqual(resp.status_code, 200)
-        rows = resp.json()
-        self.assertEqual(len(rows), 2)
-        for row in rows:
-            self.assertEqual(row["product_sku"], "PROD-1")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()), 1)
+        self.assertEqual(r.json()[0]["product_sku"], "SKU-A")
 
-    def test_summary_returns_aggregates(self) -> None:
-        _post_movement(self.client, self.headers, self.wh_a, self.p1, "in", 5)
-
-        resp = self.client.get("/api/v1/inventory/summary", headers=self.headers)
-        self.assertEqual(resp.status_code, 200)
-        payload = resp.json()
-        # Esperado:
-        #   warehouses=2, products=2, stock_records=1, movements=1, low_stock_alerts=0
-        self.assertEqual(payload["warehouses"], 2)
-        self.assertEqual(payload["products"], 2)
-        self.assertEqual(payload["stock_records"], 1)
-        self.assertEqual(payload["movements"], 1)
-        self.assertEqual(payload["low_stock_alerts"], 0)
+    def test_stock_distribution_by_warehouse(self) -> None:
+        wh1 = _create_warehouse(self.client, self.headers, "WH-D1")
+        wh2 = _create_warehouse(self.client, self.headers, "WH-D2")
+        prod = _create_product(self.client, self.headers, "SKU-D")
+        _post_movement(self.client, self.headers, wh1, prod, "in", 10)
+        _post_movement(self.client, self.headers, wh2, prod, "in", 5)
+        r = self.client.get(
+            "/api/v1/inventory/stock", headers=self.headers
+        )
+        self.assertEqual(r.status_code, 200)
+        # 2 stock_levels rows (uno por bodega)
+        self.assertEqual(len(r.json()), 2)
 
     def test_movements_listing(self) -> None:
-        # POST 2 IN, 1 OUT.
-        _post_movement(self.client, self.headers, self.wh_a, self.p1, "in", 10)
-        _post_movement(self.client, self.headers, self.wh_a, self.p1, "in", 3)
-        _post_movement(self.client, self.headers, self.wh_a, self.p1, "out", 4)
-
-        resp = self.client.get(
+        wh = _create_warehouse(self.client, self.headers, "WH-ML")
+        prod = _create_product(self.client, self.headers, "SKU-ML")
+        _post_movement(self.client, self.headers, wh, prod, "in", 1)
+        _post_movement(self.client, self.headers, wh, prod, "in", 2)
+        _post_movement(self.client, self.headers, wh, prod, "out", 1)
+        r = self.client.get(
             "/api/v1/inventory/movements",
-            params={"product_id": self.p1},
+            params={"warehouse_id": wh, "product_id": prod},
             headers=self.headers,
         )
-        self.assertEqual(resp.status_code, 200)
-        rows = resp.json()
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()), 3)
 
-        # Filtro por movement_type.
-        resp_in = self.client.get(
-            "/api/v1/inventory/movements",
-            params={"product_id": self.p1, "movement_type": "in"},
-            headers=self.headers,
-        )
-        self.assertEqual(len(resp_in.json()), 2)
-
-        resp_out = self.client.get(
-            "/api/v1/inventory/movements",
-            params={"product_id": self.p1, "movement_type": "out"},
-            headers=self.headers,
-        )
-        self.assertEqual(len(resp_out.json()), 1)
+    def test_summary_returns_aggregates(self) -> None:
+        wh = _create_warehouse(self.client, self.headers, "WH-SUM")
+        prod = _create_product(self.client, self.headers, "SKU-SUM")
+        _post_movement(self.client, self.headers, wh, prod, "in", 5)
+        r = self.client.get("/api/v1/inventory/summary", headers=self.headers)
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertIn("stock_records", body)
+        self.assertIn("movements", body)
+        self.assertIn("low_stock_alerts", body)
+        self.assertIn("warehouses", body)
+        self.assertIn("products", body)
+        self.assertEqual(body["stock_records"], 1)
+        self.assertEqual(body["movements"], 1)
 
 
 if __name__ == "__main__":

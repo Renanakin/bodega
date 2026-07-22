@@ -58,9 +58,11 @@ async def create_product(
     payload: ProductCreate,
     user=Depends(require_roles("admin", "supervisor")),
     service: ProductService = Depends(get_product_service),
+    session: AsyncSession = Depends(get_session),
 ) -> ProductResponse:
     product = await service.create_product(payload)
     await record_audit(
+        session=session,
         user_id=user.id,
         action="product.create",
         entity_type="product",
@@ -86,9 +88,11 @@ async def update_product(
     payload: ProductUpdate,
     user=Depends(require_roles("admin", "supervisor")),
     service: ProductService = Depends(get_product_service),
+    session: AsyncSession = Depends(get_session),
 ) -> ProductResponse:
     product = await service.update_product(product_id, payload)
     await record_audit(
+        session=session,
         user_id=user.id,
         action="product.update",
         entity_type="product",

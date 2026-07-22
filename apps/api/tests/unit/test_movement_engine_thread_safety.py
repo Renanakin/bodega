@@ -43,40 +43,48 @@ from app.modules.warehouses.repository import WarehouseRepository
 
 
 def _make_warehouse_and_product(db):
-    """Crea 1 warehouse + 1 product via repositorios sync.
+    """Crea 1 warehouse + 1 product via SQL directo (sync).
 
-    Devuelve (warehouse, product) records.
+    Devuelve (warehouse_id, product_id) UUIDs.
+    FIX Fase 5+: usa SQL directo porque WarehouseRepository y ProductRepository
+    ahora son async (usan AsyncSession). El test del sync MovementEngine
+    sigue siendo sync y no comparte la migración async.
     """
-    wh_repo = WarehouseRepository(db)
-    prod_repo = ProductRepository(db)
+    from datetime import UTC
+
     now = utcnow()
-    wh = wh_repo.add(
-        WarehouseRecord(
-            id=uuid4(),
-            code=f"WH-{uuid4().hex[:8]}",
-            name="WH Concurrencia",
-            warehouse_type="principal",
-            is_active=True,
-            created_at=now,
-            updated_at=now,
-        )
+    wh_id = uuid4()
+    prod_id = uuid4()
+    db.execute(
+        """
+        INSERT INTO warehouses (id, code, name, warehouse_type, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, ?, ?)
+        """,
+        (
+            str(wh_id),
+            f"WH-{wh_id.hex[:8]}",
+            "WH Concurrencia",
+            "principal",
+            now.isoformat(),
+            now.isoformat(),
+        ),
     )
-    prod = prod_repo.add(
-        ProductRecord(
-            id=uuid4(),
-            sku=f"SKU-{uuid4().hex[:8]}",
-            name="Producto Concurrencia",
-            unit="unit",
-            is_active=True,
-            created_at=now,
-            updated_at=now,
-            codigo_barras=None,
-            precio_costo=Decimal("0"),
-            precio_venta=Decimal("0"),
-            id_categoria=None,
-        )
+    db.execute(
+        """
+        INSERT INTO products (id, sku, name, unit, is_active, created_at, updated_at,
+                              codigo_barras, precio_costo, precio_venta, id_categoria)
+        VALUES (?, ?, ?, ?, 1, ?, ?, NULL, 0, 0, NULL)
+        """,
+        (
+            str(prod_id),
+            f"SKU-{prod_id.hex[:8]}",
+            "Producto Concurrencia",
+            "unit",
+            now.isoformat(),
+            now.isoformat(),
+        ),
     )
-    return wh, prod
+    return wh_id, prod_id
 
 
 class MovementEngineThreadSafetyTestCase(unittest.TestCase):
@@ -93,8 +101,8 @@ class MovementEngineThreadSafetyTestCase(unittest.TestCase):
     def _seed_stock(self, quantity: Decimal) -> None:
         """Carga stock inicial con un movimiento ``in``."""
         self.engine.register(
-            warehouse_id=self.warehouse.id,
-            product_id=self.product.id,
+            warehouse_id=self.warehouse,
+            product_id=self.product,
             movement_type=MovementType.IN,
             quantity=quantity,
             reference_type="seed",
@@ -123,8 +131,8 @@ class MovementEngineThreadSafetyTestCase(unittest.TestCase):
             for _ in range(per_worker):
                 try:
                     self.engine.register(
-                        warehouse_id=self.warehouse.id,
-                        product_id=self.product.id,
+                        warehouse_id=self.warehouse,
+                        product_id=self.product,
                         movement_type=MovementType.OUT,
                         quantity=qty_per_request,
                         reference_type="concurrent",
@@ -175,7 +183,7 @@ class MovementEngineThreadSafetyTestCase(unittest.TestCase):
         # Verificar stock final = 0
         row = self.db.query_one(
             "SELECT quantity FROM stock_levels WHERE warehouse_id = ? AND product_id = ?",
-            (str(self.warehouse.id), str(self.product.id)),
+            (str(self.warehouse), str(self.product)),
         )
         self.assertIsNotNone(row)
         self.assertEqual(Decimal(str(row["quantity"])), Decimal("0"))
@@ -184,7 +192,7 @@ class MovementEngineThreadSafetyTestCase(unittest.TestCase):
         rows = self.db.query_all(
             "SELECT movement_type, quantity FROM inventory_movements "
             "WHERE warehouse_id = ? AND product_id = ? ORDER BY created_at",
-            (str(self.warehouse.id), str(self.product.id)),
+            (str(self.warehouse), str(self.product)),
         )
         self.assertEqual(
             len(rows), 101, f"Ledger esperaba 101 (1 seed + 100 out), obtuvo {len(rows)}"
@@ -225,7 +233,7 @@ class MovementEngineThreadSafetyTestCase(unittest.TestCase):
         # Stock final = 0
         row = self.db.query_one(
             "SELECT quantity FROM stock_levels WHERE warehouse_id = ? AND product_id = ?",
-            (str(self.warehouse.id), str(self.product.id)),
+            (str(self.warehouse), str(self.product)),
         )
         self.assertEqual(Decimal(str(row["quantity"])), Decimal("0"))
 

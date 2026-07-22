@@ -120,6 +120,7 @@ async def register_movement(
     payload: InventoryMovementCreate,
     user=Depends(require_roles("admin", "supervisor", "origin_operator", "destination_operator")),
     service: InventoryServiceAsync = Depends(get_inventory_service),
+    session: AsyncSession = Depends(get_session),
 ) -> InventoryMovementResponse:
     """Registra un movimiento via MovementEngine.
 
@@ -156,6 +157,7 @@ async def register_movement(
         wh_code = matching.warehouse_code
         pr_sku = matching.product_sku
     await record_audit(
+        session=session,
         user_id=user.id,
         action="inventory.movement.create",
         entity_type="inventory_movement",
@@ -205,6 +207,7 @@ async def upsert_stock_parameters(
     payload: StockParametersUpsert,
     user=Depends(require_roles("admin", "supervisor")),
     service: InventoryServiceAsync = Depends(get_inventory_service),
+    session: AsyncSession = Depends(get_session),
 ) -> StockParametersResponse:
     """Crea o actualiza los parámetros ``(min, max)`` de un (producto, bodega).
 
@@ -219,6 +222,7 @@ async def upsert_stock_parameters(
         max_quantity=payload.stock_maximo,
     )
     await record_audit(
+        session=session,
         user_id=user.id,
         action="inventory.parameters.upsert",
         entity_type="stock_level",

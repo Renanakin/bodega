@@ -49,9 +49,11 @@ async def create_warehouse(
     payload: WarehouseCreate,
     user=Depends(require_roles("admin")),
     service: WarehouseService = Depends(get_warehouse_service),
+    session: AsyncSession = Depends(get_session),
 ) -> WarehouseResponse:
     warehouse = await service.create_warehouse(payload)
     await record_audit(
+        session=session,
         user_id=user.id,
         action="warehouse.create",
         entity_type="warehouse",

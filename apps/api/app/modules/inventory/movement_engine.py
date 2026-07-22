@@ -144,13 +144,22 @@ class MovementEngine:
         # anidados funcionan), asi que las llamadas a query_one() que hace
         # el repositorio internamente pasan por el mismo lock.
         with self._immediate_transaction():
-            # 2. Warehouse y product (DENTRO del lock)
-            warehouse = self._warehouses.get_by_id(warehouse_id)
-            if warehouse is None:
+            # 2. Warehouse y product (DENTRO del lock).
+            # FIX Fase 5+: usar SQL directo (no el WarehouseRepository async).
+            # El sync MovementEngine existe para tests legacy que no usan
+            # AsyncSession; debe ser independiente de la migración async.
+            wh_row = self._db.query_one(
+                "SELECT code FROM warehouses WHERE id = ?", (str(warehouse_id),)
+            )
+            if wh_row is None:
                 raise WarehouseNotFoundError(str(warehouse_id))
-            product = self._products.get_by_id(product_id)
-            if product is None:
+            warehouse_code = wh_row["code"]
+            pr_row = self._db.query_one(
+                "SELECT sku FROM products WHERE id = ?", (str(product_id),)
+            )
+            if pr_row is None:
                 raise ProductNotFoundError(str(product_id))
+            product_sku = pr_row["sku"]
 
             # 3. Stock actual (tambien bajo el lock)
             current = self._get_stock_level(warehouse_id, product_id)
@@ -162,9 +171,9 @@ class MovementEngine:
                 log.warning(
                     "movement.rejected",
                     warehouse_id=str(warehouse_id),
-                    warehouse_code=warehouse.code,
+                    warehouse_code=warehouse_code,
                     product_id=str(product_id),
-                    product_sku=product.sku,
+                    product_sku=product_sku,
                     movement_type=movement_type.value,
                     requested=str(quantity),
                     current=str(previous_quantity),
@@ -248,9 +257,9 @@ class MovementEngine:
             "movement.applied",
             movement_id=str(movement.id),
             warehouse_id=str(warehouse_id),
-            warehouse_code=warehouse.code,
+            warehouse_code=warehouse_code,
             product_id=str(product_id),
-            product_sku=product.sku,
+            product_sku=product_sku,
             movement_type=movement_type.value,
             quantity=str(quantity),
             delta=str(delta),
@@ -261,9 +270,9 @@ class MovementEngine:
         )
         return MovementResult(
             movement=movement,
-            warehouse_code=warehouse.code,
-            product_sku=product.sku,
-            product_name=product.name,
+            warehouse_code=warehouse_code,
+            product_sku=product_sku,
+            product_name="",  # sync engine no carga el nombre (legacy)
             previous_quantity=previous_quantity,
             new_quantity=new_quantity,
             delta=delta,
