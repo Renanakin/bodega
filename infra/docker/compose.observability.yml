@@ -1,0 +1,116 @@
+# =============================================================================
+# compose.observability.yml — Stack de observabilidad para C3
+# =============================================================================
+# Levanta Prometheus + Grafana + Alertmanager + node-exporter + postgres-exporter.
+# Se monta ADEMAS del stack principal (api, db, redis).
+#
+# Uso:
+#   docker compose -f infra/docker/docker-compose.yml \
+#                  -f infra/docker/compose.observability.yml up -d
+#
+# Puertos expuestos al host:
+#   9090  Prometheus
+#   3000  Grafana (admin/admin por defecto; cambiar en .env)
+#   9093  Alertmanager
+#   9100  node-exporter (metricas de host)
+#   9187  postgres-exporter (metricas de Postgres)
+#
+# NOTA: Grafana viene con dashboards pre-cargados en /etc/grafana/provisioning/.
+# Para desarrollo local, acepta cualquier login con usuario "admin".
+# En produccion, setear GRAFANA_ADMIN_PASSWORD en .env.
+# =============================================================================
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: bodegaje-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+    networks:
+      - bodega-obs
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: bodegaje-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - bodega-obs
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: bodegaje-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - bodega-obs
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: bodegaje-node-exporter
+    restart: unless-stopped
+    pid: host
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - bodega-obs
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: bodegaje-postgres-exporter
+    restart: unless-stopped
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-bodegaje}:${POSTGRES_PASSWORD:-bodegaje}@db:5432/${POSTGRES_DB:-bodegaje}?sslmode=disable
+    depends_on:
+      - db
+    networks:
+      - bodega-obs
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  bodega-obs:
+    name: bodega-obs
+    driver: bridge

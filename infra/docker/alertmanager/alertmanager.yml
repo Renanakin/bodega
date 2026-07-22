@@ -1,0 +1,96 @@
+# =============================================================================
+# alertmanager.yml — Configuracion de Alertmanager para Bodegaje (C3.5)
+# =============================================================================
+# Recibe alertas de Prometheus y las enruta a:
+#   - Slack (webhook URL via env SLACK_WEBHOOK_URL)
+#   - Email (SMTP_HOST/USER/PASSWORD via env)
+#   - PagerDuty (opcional, via env PAGERDUTY_KEY)
+#
+# Politica de routing:
+#   - severity=critical → Slack #oncall + email + PagerDuty
+#   - severity=warning  → Slack #ops-warnings (sin PagerDuty)
+#   - group_by: alertname, service (reduce ruido)
+#   - repeat_interval: 4h (no spamear)
+# =============================================================================
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: 'slack-default'
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Criticas van a oncall
+    - match:
+        severity: critical
+      receiver: 'oncall'
+      continue: true
+    # Warnings van a ops-warnings
+    - match:
+        severity: warning
+      receiver: 'ops-warnings'
+      continue: true
+
+receivers:
+  - name: 'slack-default'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#ops-default'
+        send_resolved: true
+        title: '{{ .GroupLabels.alertname }} ({{ .Status }})'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          Runbook: {{ .Annotations.runbook_url }}
+          {{ end }}
+
+  - name: 'oncall'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#oncall'
+        send_resolved: true
+        title: '🔴 CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          Service: {{ .Labels.service }}
+          {{ .Annotations.description }}
+          Runbook: {{ .Annotations.runbook_url }}
+          {{ end }}
+    email_configs:
+      - to: '${ONCALL_EMAIL}'
+        from: '${SMTP_FROM}'
+        smarthost: '${SMTP_HOST}:${SMTP_PORT}'
+        auth_username: '${SMTP_USER}'
+        auth_password: '${SMTP_PASSWORD}'
+        send_resolved: true
+        headers:
+          Subject: '🔴 [CRITICAL] {{ .GroupLabels.alertname }}'
+    # PagerDuty opcional
+    # pagerduty_configs:
+    #   - service_key: '${PAGERDUTY_KEY}'
+    #     send_resolved: true
+
+  - name: 'ops-warnings'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#ops-warnings'
+        send_resolved: true
+        title: '⚠️ {{ .GroupLabels.alertname }} ({{ .Status }})'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          {{ end }}
+
+# Inhibitions: si Postgres esta caido, no alertes por cosas derivadas
+inhibit_rules:
+  - source_match:
+      alertname: 'HighErrorRate'
+    target_match:
+      alertname: 'PostgresConnectionsHigh'
+    equal: ['service']

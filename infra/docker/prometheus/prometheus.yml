@@ -1,0 +1,65 @@
+# =============================================================================
+# prometheus.yml — Configuracion de Prometheus para Bodegaje (C3.1)
+# =============================================================================
+# Scrapea:
+#   - API (puerto 8000, ruta /metrics expuesta por prometheus-fastapi-instrumentator)
+#   - Postgres exporter (puerto 9187)
+#   - Node exporter (puerto 9100)
+#   - Prometheus mismo (para metricas del scraper)
+#
+# Alerting:
+#   - Carga las reglas en alerts.yml
+#   - Alertmanager recibe notificaciones en alertmanager:9093
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'bodegaje-monitor'
+    environment: '${ENVIRONMENT:-development}'
+
+# Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Reglas de alertas
+rule_files:
+  - "alerts.yml"
+
+# Scrape configs
+scrape_configs:
+  # Prometheus mismo
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # API de Bodegaje
+  # En dev (docker compose), la API esta en "api:8000".
+  # En prod con stack completo, mismo nombre dentro de la red.
+  - job_name: 'bodegaje-api'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['api:8000']
+        labels:
+          service: 'api'
+          component: 'backend'
+
+  # Postgres exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgres'
+          component: 'database'
+
+  # Node exporter (host)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node'
+          component: 'host'
