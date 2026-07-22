@@ -1,5 +1,5 @@
 """
-Tests del módulo de categorías (Fase 2).
+Tests del módulo de categorías (migrado a async + Depends(get_session)).
 
 Cubre:
 - Crear categoría simple.
@@ -10,17 +10,31 @@ Cubre:
 - Soft delete (DELETE → is_active=False, no borra fila).
 - Referencia circular directa y transitiva → 409.
 - Jerarquía de 3 niveles funciona.
+
+Migrado a async: usa ``DATABASE_URL=sqlite+aiosqlite:///:memory:`` + schema
+async + seed del admin via AsyncSession. El ``app.state.db`` legacy NO se usa.
 """
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
-from uuid import uuid4
+import uuid
 
-from app.db.session import utcnow
+from app.core.config import reset_settings_cache
+from app.db import models  # noqa: F401  -- importa modelos para Base.metadata
+from app.db.base import Base
+from app.db.models.users import User
+from app.db.session import (
+    get_session_factory,
+    reset_engine_cache,
+    utcnow,
+)
 from app.main import create_app
 from app.modules.auth.security import hash_password
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import create_async_engine
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
@@ -32,33 +46,80 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-class CategoriesTestCase(unittest.TestCase):
-    def setUp(self) -> None:
-        self.app = create_app(db_path=":memory:")
+class CategoriesTestCase(unittest.IsolatedAsyncioTestCase):
+    """Tests del módulo categories (migrado a Depends(get_session))."""
+
+    async def asyncSetUp(self) -> None:
+        # Usar un archivo temporal compartido (en vez de :memory:) para
+        # que ``app.create_app()`` (que crea su propio engine desde
+        # ``settings.database_url``) y la sesión del test apunten al
+        # MISMO archivo.
+        self._tmpdir = tempfile.mkdtemp(prefix="bodega-categories-")
+        self._db_path = os.path.join(self._tmpdir, "test.db")
+        db_url = f"sqlite+aiosqlite:///{self._db_path}"
+
+        # Forzar DATABASE_URL ANTES de cualquier create_app() o get_engine().
+        self._saved_env = {}
+        for key in ("DATABASE_URL", "ENVIRONMENT", "JWT_SECRET", "SECRET_KEY", "REDIS_URL"):
+            self._saved_env[key] = os.environ.get(key)
+        os.environ["DATABASE_URL"] = db_url
+        os.environ["ENVIRONMENT"] = "development"
+        os.environ.setdefault("JWT_SECRET", "x" * 32)
+        os.environ.setdefault("SECRET_KEY", "x" * 32)
+        os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+        reset_settings_cache()
+        reset_engine_cache()
+
+        # Crear app. SIN db_path → modo sqlite async, el engine async es la
+        # única fuente de verdad. La rama sqlite_legacy NO se usa.
+        self.app = create_app()
         self.client = TestClient(self.app)
-        now = utcnow().isoformat()
-        self.app.state.db.execute(
-            """
-            INSERT INTO users (id, username, full_name, role, password_hash, is_active, created_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?)
-            """,
-            (
-                str(uuid4()),
-                "admin",
-                "Administrador Demo",
-                "admin",
-                hash_password("demo123"),
-                now,
-            ),
-        )
+
+        # Inicializar el schema async (tablas) y sembrar el admin.
+        from app.db.session import get_engine
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        factory = get_session_factory()
+        async with factory() as session:
+            admin = User(
+                id=uuid.uuid4(),
+                username="admin",
+                full_name="Administrador Demo",
+                role="admin",
+                password_hash=hash_password("demo123"),
+                is_active=True,
+                created_at=utcnow(),
+            )
+            session.add(admin)
+            await session.commit()
+
         self.headers = _auth_headers(self.client)
 
-    def tearDown(self) -> None:
-        self.app.state.db.close()
+    async def asyncTearDown(self) -> None:
+        from app.db.session import get_engine
+
+        await get_engine().dispose()
+        reset_engine_cache()
+        # Restaurar env vars
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        reset_settings_cache()
+        # Limpiar archivo temporal
+        try:
+            os.remove(self._db_path)
+            os.rmdir(self._tmpdir)
+        except OSError:
+            pass
 
     # --- Tests ---
 
-    def test_create_and_list_category(self) -> None:
+    async def test_create_and_list_category(self) -> None:
         create_resp = self.client.post(
             "/api/v1/categories",
             json={"nombre": "Neumáticos", "descripcion": "Cubiertas y afines"},
@@ -74,7 +135,7 @@ class CategoriesTestCase(unittest.TestCase):
         self.assertEqual(list_resp.status_code, 200)
         self.assertEqual(len(list_resp.json()), 1)
 
-    def test_duplicate_name_is_case_insensitive(self) -> None:
+    async def test_duplicate_name_is_case_insensitive(self) -> None:
         self.client.post(
             "/api/v1/categories",
             json={"nombre": "Frenos"},
@@ -88,16 +149,16 @@ class CategoriesTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 409)
         self.assertEqual(resp.json()["detail"]["code"], "duplicate_category_name")
 
-    def test_parent_id_not_found(self) -> None:
+    async def test_parent_id_not_found(self) -> None:
         resp = self.client.post(
             "/api/v1/categories",
-            json={"nombre": "Aceites", "parent_id": str(uuid4())},
+            json={"nombre": "Aceites", "parent_id": str(uuid.uuid4())},
             headers=self.headers,
         )
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["detail"]["code"], "category_not_found")
 
-    def test_hierarchical_categories_three_levels(self) -> None:
+    async def test_hierarchical_categories_three_levels(self) -> None:
         # Nivel 1
         root_id = self.client.post(
             "/api/v1/categories",
@@ -128,10 +189,12 @@ class CategoriesTestCase(unittest.TestCase):
         self.assertEqual(children_of_root[0]["id"], mid_id)
 
         # Detalle del nivel 3
-        leaf_detail = self.client.get(f"/api/v1/categories/{leaf_id}", headers=self.headers).json()
+        leaf_detail = self.client.get(
+            f"/api/v1/categories/{leaf_id}", headers=self.headers
+        ).json()
         self.assertEqual(leaf_detail["parent_id"], mid_id)
 
-    def test_patch_partial(self) -> None:
+    async def test_patch_partial(self) -> None:
         cat_id = self.client.post(
             "/api/v1/categories",
             json={"nombre": "Filtros"},
@@ -151,18 +214,22 @@ class CategoriesTestCase(unittest.TestCase):
         # nombre no se tocó
         self.assertEqual(resp.json()["nombre"], "Filtros")
 
-    def test_soft_delete(self) -> None:
+    async def test_soft_delete(self) -> None:
         cat_id = self.client.post(
             "/api/v1/categories",
             json={"nombre": "Temporal"},
             headers=self.headers,
         ).json()["id"]
 
-        delete_resp = self.client.delete(f"/api/v1/categories/{cat_id}", headers=self.headers)
+        delete_resp = self.client.delete(
+            f"/api/v1/categories/{cat_id}", headers=self.headers
+        )
         self.assertEqual(delete_resp.status_code, 204)
 
         # Sigue existiendo la fila pero is_active=False
-        detail = self.client.get(f"/api/v1/categories/{cat_id}", headers=self.headers)
+        detail = self.client.get(
+            f"/api/v1/categories/{cat_id}", headers=self.headers
+        )
         self.assertEqual(detail.status_code, 200)
         self.assertFalse(detail.json()["is_active"])
 
@@ -174,7 +241,7 @@ class CategoriesTestCase(unittest.TestCase):
         ).json()
         self.assertEqual(len(list_active), 0)
 
-    def test_direct_circular_reference(self) -> None:
+    async def test_direct_circular_reference(self) -> None:
         cat_id = self.client.post(
             "/api/v1/categories",
             json={"nombre": "Loop"},
@@ -187,9 +254,11 @@ class CategoriesTestCase(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(resp.status_code, 409)
-        self.assertEqual(resp.json()["detail"]["code"], "category_circular_reference")
+        self.assertEqual(
+            resp.json()["detail"]["code"], "category_circular_reference"
+        )
 
-    def test_transitive_circular_reference(self) -> None:
+    async def test_transitive_circular_reference(self) -> None:
         # A → B → C; intentar hacer A.parent = C crearía ciclo A → C → B → A
         a_id = self.client.post(
             "/api/v1/categories", json={"nombre": "A"}, headers=self.headers
@@ -211,10 +280,14 @@ class CategoriesTestCase(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(resp.status_code, 409)
-        self.assertEqual(resp.json()["detail"]["code"], "category_circular_reference")
+        self.assertEqual(
+            resp.json()["detail"]["code"], "category_circular_reference"
+        )
 
-    def test_category_not_found(self) -> None:
-        resp = self.client.get(f"/api/v1/categories/{uuid4()}", headers=self.headers)
+    async def test_category_not_found(self) -> None:
+        resp = self.client.get(
+            f"/api/v1/categories/{uuid.uuid4()}", headers=self.headers
+        )
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["detail"]["code"], "category_not_found")
 

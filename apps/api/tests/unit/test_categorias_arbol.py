@@ -1,18 +1,27 @@
-"""Tests del endpoint /categories/arbol (Fase 8).
+"""
+Tests del endpoint /categories/arbol (Fase 8) — async puro.
 
-Cubre:
-- El endpoint devuelve la jerarquia completa como arbol anidado.
-- Jerarquia de 3 niveles (root -> mid -> leaf) se serializa correctamente.
-- Los nodos inactivos se ocultan por default.
-- Los conteos (subcategorias_count, productos_count) son correctos.
+Migrado: usa ``DATABASE_URL=sqlite+aiosqlite:///<file>`` + schema async +
+seed del admin via AsyncSession. Ya no depende de ``app.state.db`` legacy.
 """
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
-from uuid import uuid4
+import uuid
 
-from app.db.session import utcnow
+from app.core.config import reset_settings_cache
+from app.db import models  # noqa: F401  -- importa modelos
+from app.db.base import Base
+from app.db.models.users import User
+from app.db.session import (
+    get_engine,
+    get_session_factory,
+    reset_engine_cache,
+    utcnow,
+)
 from app.main import create_app
 from app.modules.auth.security import hash_password
 from fastapi.testclient import TestClient
@@ -27,34 +36,73 @@ def _auth_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-class CategoriasArbolTestCase(unittest.TestCase):
-    def setUp(self) -> None:
-        self.app = create_app(db_path=":memory:")
+class _AsyncTestBase(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp(prefix="bodega-arbol-")
+        self._db_path = os.path.join(self._tmpdir, "test.db")
+        db_url = f"sqlite+aiosqlite:///{self._db_path}"
+
+        self._saved_env = {}
+        for key in (
+            "DATABASE_URL",
+            "ENVIRONMENT",
+            "JWT_SECRET",
+            "SECRET_KEY",
+            "REDIS_URL",
+        ):
+            self._saved_env[key] = os.environ.get(key)
+        os.environ["DATABASE_URL"] = db_url
+        os.environ["ENVIRONMENT"] = "development"
+        os.environ.setdefault("JWT_SECRET", "x" * 32)
+        os.environ.setdefault("SECRET_KEY", "x" * 32)
+        os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+        reset_settings_cache()
+        reset_engine_cache()
+
+        self.app = create_app()
         self.client = TestClient(self.app)
-        now = utcnow().isoformat()
-        self.app.state.db.execute(
-            """
-            INSERT INTO users (id, username, full_name, role, password_hash, is_active, created_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?)
-            """,
-            (
-                str(uuid4()),
-                "admin",
-                "Administrador Demo",
-                "admin",
-                hash_password("demo123"),
-                now,
-            ),
-        )
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        factory = get_session_factory()
+        async with factory() as session:
+            admin = User(
+                id=uuid.uuid4(),
+                username="admin",
+                full_name="Administrador Demo",
+                role="admin",
+                password_hash=hash_password("demo123"),
+                is_active=True,
+                created_at=utcnow(),
+            )
+            session.add(admin)
+            await session.commit()
+
         self.headers = _auth_headers(self.client)
 
-    def tearDown(self) -> None:
-        self.app.state.db.close()
+    async def asyncTearDown(self) -> None:
+        await get_engine().dispose()
+        reset_engine_cache()
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        reset_settings_cache()
+        try:
+            os.remove(self._db_path)
+            os.rmdir(self._tmpdir)
+        except OSError:
+            pass
 
+
+class CategoriasArbolTestCase(_AsyncTestBase):
     # ----------------------------------------------------------------- tests
 
-    def test_categorias_arbol_devuelve_jerarquia(self) -> None:
-        """Crea root + 2 hijos, verifica que el arbol los incluye."""
+    async def test_categorias_arbol_devuelve_jerarquia(self) -> None:
+        """Crea root + 2 hijos, verifica que el árbol los incluye."""
         root_id = self.client.post(
             "/api/v1/categories",
             json={"nombre": "Repuestos"},
@@ -86,8 +134,8 @@ class CategoriasArbolTestCase(unittest.TestCase):
             self.assertEqual(child["subcategorias_count"], 0)
             self.assertEqual(child["productos_count"], 0)
 
-    def test_categorias_arbol_con_3_niveles(self) -> None:
-        """Verifica jerarquia root -> mid -> leaf (3 niveles)."""
+    async def test_categorias_arbol_con_3_niveles(self) -> None:
+        """Verifica jerarquía root -> mid -> leaf (3 niveles)."""
         root_id = self.client.post(
             "/api/v1/categories",
             json={"nombre": "Vehiculos"},
@@ -132,7 +180,7 @@ class CategoriasArbolTestCase(unittest.TestCase):
             self.assertEqual(len(leaf["children"]), 0)
             self.assertEqual(leaf["subcategorias_count"], 0)
 
-    def test_categorias_arbol_oculta_inactivos_por_default(self) -> None:
+    async def test_categorias_arbol_oculta_inactivos_por_default(self) -> None:
         """Con solo_activos=true (default), los nodos is_active=False no aparecen."""
         self.client.post(
             "/api/v1/categories",
@@ -145,7 +193,9 @@ class CategoriasArbolTestCase(unittest.TestCase):
             headers=self.headers,
         ).json()["id"]
         # Soft-delete "Inactivo".
-        del_resp = self.client.delete(f"/api/v1/categories/{inactive_id}", headers=self.headers)
+        del_resp = self.client.delete(
+            f"/api/v1/categories/{inactive_id}", headers=self.headers
+        )
         self.assertEqual(del_resp.status_code, 204, del_resp.text)
 
         # Default: solo_activos=True. Solo "Activo" aparece.
