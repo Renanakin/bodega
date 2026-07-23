@@ -1,0 +1,5 @@
+# Crontab para supercronic.
+# Backup diario a las 03:00 UTC (12 AM Chile continental en verano, 11 PM en invierno).
+# Formato supercronic: igual a cron clasico de 5 campos + comando.
+# https://github.com/aptible/supercronic#crontab-format
+0 3 * * * /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1
