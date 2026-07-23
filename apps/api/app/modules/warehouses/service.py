@@ -39,8 +39,14 @@ class WarehouseService:
 
     # --------------------------------------------------------------- READ
 
-    async def list_warehouses(self) -> list[Warehouse]:
-        return await self._repository.list()
+    async def list_warehouses(
+        self,
+        warehouse_type: str | None = None,
+        is_active: bool | None = None,
+    ) -> list[Warehouse]:
+        return await self._repository.list(
+            warehouse_type=warehouse_type, is_active=is_active
+        )
 
     async def get_warehouse(self, warehouse_id: uuid.UUID) -> Warehouse:
         warehouse = await self._repository.get_by_id(warehouse_id)
@@ -67,7 +73,8 @@ class WarehouseService:
             code=payload.code,
             name=payload.name,
             warehouse_type=payload.warehouse_type,
-            is_active=True,
+            parent_warehouse_id=payload.parent_warehouse_id,
+            is_active=payload.is_active,
             created_at=now,
             updated_at=now,
         )

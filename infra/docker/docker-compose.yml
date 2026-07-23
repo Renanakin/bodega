@@ -92,6 +92,17 @@ services:
       - APP_NAME=Bodegaje API
       - APP_VERSION=0.1.0
       - API_V1_PREFIX=/api/v1
+      - ENVIRONMENT=${ENVIRONMENT:-staging}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://bodegaje:bodegaje@db:5432/bodegaje}
+      - REDIS_URL=redis://redis:6379/0
+      - SMTP_HOST=mailpit
+      - SMTP_PORT=1025
+      - SMTP_FROM=${SMTP_FROM:-noreply@bodegaje.example}
+      - SMTP_TLS=false
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in .env}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:5173}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
       db:
         condition: service_healthy

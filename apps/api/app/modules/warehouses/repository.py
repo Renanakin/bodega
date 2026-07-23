@@ -26,8 +26,16 @@ class WarehouseRepository:
 
     # ----------------------------------------------------------------- READ
 
-    async def list(self) -> list[Warehouse]:
+    async def list(
+        self,
+        warehouse_type: str | None = None,
+        is_active: bool | None = None,
+    ) -> list[Warehouse]:
         stmt = select(Warehouse).order_by(Warehouse.code)
+        if warehouse_type is not None:
+            stmt = stmt.where(Warehouse.warehouse_type == warehouse_type)
+        if is_active is not None:
+            stmt = stmt.where(Warehouse.is_active == is_active)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 

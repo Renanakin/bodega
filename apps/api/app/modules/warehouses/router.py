@@ -24,7 +24,7 @@ from app.modules.auth.router import get_current_user
 from app.modules.warehouses.repository import WarehouseRepository
 from app.modules.warehouses.schemas import WarehouseCreate, WarehouseResponse
 from app.modules.warehouses.service import WarehouseService
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -38,10 +38,24 @@ def get_warehouse_service(
 
 @router.get("", response_model=list[WarehouseResponse])
 async def list_warehouses(
+    warehouse_type: str | None = Query(
+        default=None,
+        description=(
+            "Filtra por tipo de bodega. Valores validos: principal, auxiliar, "
+            "mecanico_box. Si se omite, devuelve todas."
+        ),
+        pattern="^(principal|auxiliar|mecanico_box)$",
+    ),
+    is_active: bool | None = Query(
+        default=None,
+        description="Si se envia, filtra por estado activo/inactivo.",
+    ),
     _: object = Depends(get_current_user),
     service: WarehouseService = Depends(get_warehouse_service),
 ) -> list[WarehouseResponse]:
-    warehouses = await service.list_warehouses()
+    warehouses = await service.list_warehouses(
+        warehouse_type=warehouse_type, is_active=is_active
+    )
     return [WarehouseResponse.model_validate(w) for w in warehouses]
 
 

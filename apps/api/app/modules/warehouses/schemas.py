@@ -10,6 +10,18 @@ class WarehouseCreate(BaseModel):
     code: str = Field(min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=150)
     warehouse_type: str = Field(min_length=1, max_length=30)
+    # ADR-0002: solo los boxes (warehouse_type='mecanico_box') requieren
+    # parent_warehouse_id NOT NULL. principal/auxiliar deben traerlo None.
+    parent_warehouse_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Bodega padre. Requerida solo para warehouse_type='mecanico_box'."
+        ),
+    )
+    is_active: bool = Field(
+        default=True,
+        description="Estado activo/inactivo. Default true al crear.",
+    )
 
     @field_validator("code")
     @classmethod
