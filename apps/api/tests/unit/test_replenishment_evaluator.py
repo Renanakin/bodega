@@ -503,21 +503,55 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
         self.assertEqual(detalles[self.p4_id].cantidad_solicitada, Decimal("8"))
 
     async def test_evaluar_no_crea_solicitud_si_ya_hay_pendiente(self) -> None:
-        """Idempotencia R6: si ya hay PENDING desde esa bodega, omite."""
-        from app.db.models.solicitudes import SolicitudEstado, SolicitudRecarga
+        """Idempotencia R6: si ya hay PENDING desde esa bodega con linea
+        para el producto bajo minimo, omite SOLO ese (bodega, producto).
+
+        BUG 9 (2026-07-23): la regla original era "si la bodega tiene
+        cualquier PENDING, omitir TODA la bodega". Eso era incorrecto:
+        una bodega con 3 SKUs bajo minimo quedaria huerfana cuando ya
+        existia una solicitud pendiente para otro SKU. La regla correcta
+        es POR (bodega, producto): se omite solo la linea que ya esta
+        cubierta, no toda la bodega.
+
+        BUG 12 (2026-07-23): ademas de PENDING, tambien cuentan los
+        estados donde el stock no ha llegado al destino: APPROVED,
+        IN_TRANSIT, PARTIALLY_RECEIVED.
+        """
+        from app.db.models.solicitudes import (
+            DetalleSolicitudRecarga,
+            SolicitudEstado,
+            SolicitudRecarga,
+        )
         from sqlalchemy import select
 
-        # Crear manualmente una solicitud PENDING desde AUX-1
+        # Crear manualmente una solicitud PENDING desde AUX-1 con linea
+        # para p1 (SKU que esta bajo minimo en la seed).
+        sol_id = uuid4()
         async with self.session_factory() as session:
             session.add(
                 SolicitudRecarga(
-                    id=uuid4(),
+                    id=sol_id,
                     codigo="SOL-EXISTENTE-0001",
                     id_bodega_origen=self.aux1_id,
                     id_bodega_destino=self.principal_id,
                     estado=SolicitudEstado.PENDING,
                     prioridad="normal",
                     notas="Solicitud preexistente",
+                )
+            )
+            # Flush para que la solicitud exista antes de insertar la linea
+            # (PK compuesta -> la linea FK a id_solicitud requiere parent
+            # persistido).
+            await session.flush()
+            # Linea que CUBRE p1 (unico SKU bajo minimo en AUX-1 segun la seed).
+            # PK compuesta (id_solicitud, id_producto), no tiene id propio.
+            session.add(
+                DetalleSolicitudRecarga(
+                    id_solicitud=sol_id,
+                    id_producto=self.p1_id,
+                    cantidad_solicitada=Decimal("17"),
+                    cantidad_despachada=Decimal("0"),
+                    cantidad_recibida=Decimal("0"),
                 )
             )
             await session.commit()
@@ -527,17 +561,25 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
             report = await evaluator.evaluate_all()
             await session.commit()
 
-        self.assertEqual(report.solicitudes_creadas, 0)
+        # BUG 9 + BUG 12: la regla es POR (bodega, producto), no por
+        # bodega completa. p1 esta cubierto por la linea PENDING
+        # preexistente, asi que se omite SOLO ese SKU. Los otros 3
+        # SKUs bajo minimo (p2, p3, p4) NO estan cubiertos, asi que
+        # el Evaluator crea una nueva solicitud con ellos.
+        self.assertEqual(report.solicitudes_creadas, 1)
         self.assertEqual(report.solicitudes_omitidas_pendientes, 1)
-        # skus_bajo_minimo = 0: cuando una bodega se omite por tener
-        # PENDING, salimos antes de contar stocks bajo minimo (no se
-        # "consideran" para reposicion). AUX-2 no tiene bajo minimo.
-        self.assertEqual(report.skus_bajo_minimo, 0)
+        # skus_bajo_minimo cuenta los 4 bajo minimo (el Evaluator
+        # los evalua; lo que cambia es que algunos se omiten por
+        # cobertura). Antes con la regla de "omitir bodega completa"
+        # el contador quedaba en 0, pero eso era un side-effect
+        # incorrecto: el stock SIGUE bajo minimo y la UI debe saberlo.
+        self.assertEqual(report.skus_bajo_minimo, 4)
 
-        # Solo debe existir 1 solicitud (la preexistente)
+        # Deben existir 2 solicitudes: la preexistente + la nueva
+        # que cubre p2, p3, p4 (no p1).
         async with self.session_factory() as session:
             count = (await session.execute(select(SolicitudRecarga))).scalars().all()
-            self.assertEqual(len(count), 1)
+            self.assertEqual(len(count), 2)
 
     async def test_evaluar_solo_procesa_bodegas_auxiliares(self) -> None:
         """El Evaluator NO crea solicitudes desde Principal ni desde Boxes."""

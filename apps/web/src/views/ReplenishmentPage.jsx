@@ -31,6 +31,24 @@ function formatTimestamp(iso) {
   }
 }
 
+// BUG 12 (fix 2026-07-23): traduce el estado de la solicitud que cubre
+// el bajo minimo, para que la UI muestre el contexto correcto al
+// operador ("pendiente de aprobacion", "aprobada esperando despacho",
+// "en transito", etc.).
+const ESTADO_SOLICITUD_LABEL = {
+  pending: "pendiente de aprobacion",
+  approved: "aprobada, esperando despacho",
+  in_transit: "en transito",
+  partially_received: "recepcion parcial",
+  received: "recibida",
+  rejected: "rechazada",
+  cancelled: "cancelada",
+};
+
+function labelEstadoSolicitud(estado) {
+  return ESTADO_SOLICITUD_LABEL[estado] || estado;
+}
+
 export function ReplenishmentPage() {
   const { user } = useAuth();
   const { pushToast, setPendingLabel, clearPending } = useUi();
@@ -278,35 +296,46 @@ export function ReplenishmentPage() {
               </p>
               <p className="mt-1 text-sm text-slate-500">
                 {cubiertos.length > 0
-                  ? "Todas las bodegas auxiliares tienen su stock bajo minimo cubierto por solicitudes PENDING."
+                  ? "Todas las bodegas auxiliares tienen su stock bajo minimo cubierto por solicitudes activas (pendiente, aprobada, en transito o recepcion parcial)."
                   : "Todas las bodegas auxiliares tienen su stock sobre el minimo configurado. El sistema volvera a evaluar en la proxima corrida automatica."}
               </p>
             </div>
             {cubiertos.length > 0 ? (
               <div className="mx-auto mt-6 max-w-3xl overflow-hidden rounded-lg border border-amber-200 bg-amber-50">
                 <div className="border-b border-amber-200 bg-amber-100 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-900">
-                  SKUs bajo minimo cubiertos por solicitudes pendientes ({cubiertos.length})
+                  SKUs bajo minimo cubiertos por solicitudes activas ({cubiertos.length})
                 </div>
                 <ul className="divide-y divide-amber-200 text-sm">
                   {cubiertos.map((it) => (
                     <li
                       key={`${it.solicitud_id}-${it.bodega_id}-${it.producto_id}`}
-                      className="flex flex-wrap items-center gap-2 px-4 py-2 text-amber-900"
+                      className="flex items-center gap-3 px-4 py-2 text-amber-900"
                     >
-                      <span className="font-mono text-xs font-semibold">
-                        {it.producto_sku}
-                      </span>
-                      <span className="text-amber-800">{it.producto_nombre}</span>
-                      <span className="text-amber-700">en</span>
-                      <span className="font-mono text-xs">{it.bodega_codigo}</span>
-                      <span className="ml-auto text-xs text-amber-700">
-                        Stock {formatCantidad(it.stock_actual)} / min{" "}
-                        {formatCantidad(it.stock_minimo)} - solicita{" "}
-                        {formatCantidad(it.cantidad_solicitada)}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm">
+                          <span className="font-mono text-xs font-semibold">
+                            {it.producto_sku}
+                          </span>{" "}
+                          <span className="text-amber-800">
+                            {it.producto_nombre}
+                          </span>{" "}
+                          <span className="text-amber-700">en</span>{" "}
+                          <span className="font-mono text-xs">
+                            {it.bodega_codigo}
+                          </span>
+                        </div>
+                        <div className="text-xs text-amber-700">
+                          Stock {formatCantidad(it.stock_actual)} / min{" "}
+                          {formatCantidad(it.stock_minimo)} - solicita{" "}
+                          {formatCantidad(it.cantidad_solicitada)}
+                          {it.solicitud_estado
+                            ? ` - ${labelEstadoSolicitud(it.solicitud_estado)}`
+                            : ""}
+                        </div>
+                      </div>
                       <a
                         href={`/solicitudes?highlight=${encodeURIComponent(it.solicitud_id)}`}
-                        className="rounded border border-amber-300 bg-white px-2 py-0.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                        className="shrink-0 whitespace-nowrap rounded border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
                       >
                         {it.solicitud_codigo}
                       </a>
@@ -391,7 +420,8 @@ export function ReplenishmentPage() {
         no esta definido). Prioridad{" "}
         <span className="font-semibold text-amber-700">alta</span> cuando el
         stock cae bajo el 50% del minimo. Idempotente: si ya hay una linea
-        PENDING para el mismo (bodega, producto), se omite ese SKU;
+        activa (pendiente, aprobada, en transito o recepcion parcial)
+        para el mismo (bodega, producto), se omite ese SKU;
         el resto se procesa normalmente.
       </p>
     </div>

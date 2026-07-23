@@ -31,7 +31,25 @@ from typing import Any
 
 from app.db.models.inventory import StockLevel
 from app.db.models.products import Product
-from app.db.models.solicitudes import DetalleSolicitudRecarga, SolicitudEstado, SolicitudRecarga
+from app.db.models.solicitudes import DetalleSolicitudRecarga, SolicitudRecarga
+
+# BUG 12 (fix 2026-07-23): estados que CUBREN un (bodega, producto) bajo minimo.
+# Mientras la solicitud este en uno de estos estados, el stock NO se ha repuesto
+# todavia en la bodega destino, asi que el Evaluator no debe re-generar.
+# - pending: recien creada, esperando aprobacion
+# - approved: aprobada, esperando despacho
+# - in_transit: despachada, en camino
+# - partially_received: recibida parcialmente (la parte faltante sigue pendiente)
+# NO cuentan como cobertura:
+# - received: recepcion completa, stock ya llego al destino
+# - rejected/cancelled: solicitud muerta, NO cubre y la UI debe volver
+#   a alertar (y permitir regenerar)
+ESTADOS_QUE_CUBREN_BAJO_MINIMO = (
+    "pending",
+    "approved",
+    "in_transit",
+    "partially_received",
+)
 from app.db.models.warehouses import Warehouse
 from app.db.session import get_session
 from app.modules.auth.dependencies import require_roles
@@ -272,13 +290,22 @@ async def get_productos_bajo_minimo(
     # (porque R6 = idempotencia por (bodega, producto)). El usuario
     # veia la fila, hacia click en 'Generar solicitudes' y el reporte
     # decia '0 creadas, 1 omitida' sin entender por que.
+    #
+    # BUG 12 (fix 2026-07-23): la cobertura NO es solo PENDING. Una
+    # solicitud cubre mientras el stock NO haya llegado al destino:
+    # pending, approved, in_transit, partially_received. Solo received
+    # (o rejected/cancelled) dejan de cubrir, momento en que el SKU
+    # vuelve a aparecer como alerta. Antes, al aprobar la solicitud
+    # (PENDING -> APPROVED), el stock seguia bajo minimo pero el
+    # endpoint ya no la contaba como cobertura y el SKU desaparecia
+    # de la UI sin explicacion.
     product_ids = list({s.product_id for s in stocks})
     pendiente_lineas_stmt = (
         select(DetalleSolicitudRecarga.id_producto, SolicitudRecarga.id_bodega_origen)
         .join(SolicitudRecarga, DetalleSolicitudRecarga.id_solicitud == SolicitudRecarga.id)
         .where(
             SolicitudRecarga.id_bodega_origen.in_(wh_ids),
-            SolicitudRecarga.estado == SolicitudEstado.PENDING.value,
+            SolicitudRecarga.estado.in_(ESTADOS_QUE_CUBREN_BAJO_MINIMO),
             DetalleSolicitudRecarga.id_producto.in_(product_ids),
         )
     )
@@ -362,7 +389,10 @@ async def get_bajo_minimo_cubiertos_por_pendientes(
             items=[],
         )
 
-    # 2. JOIN con lineas PENDING: (warehouse, producto) cubiertos.
+    # 2. JOIN con lineas que CUBREN: (warehouse, producto) bajo minimo
+    # ya atendidos por una solicitud activa (cualquier estado donde el
+    # stock no ha llegado al destino: pending/approved/in_transit/
+    # partially_received). Ver BUG 12 arriba para justificacion.
     product_ids = list({s.product_id for s in stocks})
     stmt = (
         select(
@@ -372,12 +402,13 @@ async def get_bajo_minimo_cubiertos_por_pendientes(
             SolicitudRecarga.id,
             SolicitudRecarga.codigo,
             SolicitudRecarga.id_bodega_origen,
+            SolicitudRecarga.estado,
             SolicitudRecarga.created_at,
         )
         .join(SolicitudRecarga, DetalleSolicitudRecarga.id_solicitud == SolicitudRecarga.id)
         .where(
             SolicitudRecarga.id_bodega_origen.in_(wh_ids),
-            SolicitudRecarga.estado == SolicitudEstado.PENDING.value,
+            SolicitudRecarga.estado.in_(ESTADOS_QUE_CUBREN_BAJO_MINIMO),
             DetalleSolicitudRecarga.id_producto.in_(product_ids),
         )
     )
@@ -415,6 +446,7 @@ async def get_bajo_minimo_cubiertos_por_pendientes(
         sol_id,
         sol_codigo,
         wh_id,
+        sol_estado,
         created_at,
     ) in rows:
         wh = wh_by_id.get(wh_id)
@@ -436,6 +468,10 @@ async def get_bajo_minimo_cubiertos_por_pendientes(
                 stock_minimo=stock.min_quantity,
                 cantidad_solicitada=cant_solicitada,
                 cantidad_despachada=cant_despachada,
+                # BUG 12 (fix 2026-07-23): exponer el estado para que la UI
+                # pueda mostrar "aprobada, esperando despacho" vs "pendiente
+                # de aprobacion". Asi el operador entiende el flujo.
+                solicitud_estado=sol_estado,
                 created_at=created_at,
             )
         )

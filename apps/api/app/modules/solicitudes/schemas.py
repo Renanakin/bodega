@@ -307,17 +307,25 @@ class StockBajoMinimoResponse(BaseModel):
 
 
 class SolicitudCubreBajoMinimoItem(BaseModel):
-    """Una linea del reporte 'solicitudes pendientes que cubren bajo minimo'.
+    """Una linea del reporte 'solicitudes activas que cubren bajo minimo'.
 
     Indica que este (bodega_id, producto_id) esta bajo minimo y que ya
-    hay una solicitud PENDING que lo cubre. Sirve para que la UI del
-    Replenishment muestre contexto cuando ``/bajo-minimo`` devuelve 0:
-    el usuario entiende que 'no hay alertas nuevas' porque ya hay una
-    solicitud cubriendo esos SKUs.
+    hay una solicitud activa (pending/approved/in_transit/partially_received)
+    que lo cubre. Sirve para que la UI del Replenishment muestre contexto
+    cuando ``/bajo-minimo`` devuelve 0: el usuario entiende que 'no hay
+    alertas nuevas' porque ya hay una solicitud en curso.
+
+    BUG 12 (fix 2026-07-23): ahora incluye el campo ``solicitud_estado``
+    para que la UI pueda mostrar donde esta la solicitud en el flujo
+    (aprobada esperando despacho, en transito, etc.) y el operador
+    sepa que ya no debe generar otra.
     """
 
     solicitud_id: UUID
     solicitud_codigo: str
+    # BUG 12: estado actual de la solicitud que cubre (pending, approved,
+    # in_transit, partially_received). Util para la UI.
+    solicitud_estado: str
     bodega_id: UUID
     bodega_codigo: str
     bodega_nombre: str
@@ -333,8 +341,14 @@ class SolicitudCubreBajoMinimoItem(BaseModel):
 
 class SolicitudesCubrenBajoMinimoResponse(BaseModel):
     """Listado de (bodega, producto) bajo minimo cubiertos por solicitudes
-    PENDING existentes. La UI lo muestra cuando bajo-minimo esta vacio
-    para que el operador sepa que ya hay una solicitud en curso.
+    activas (pending/approved/in_transit/partially_received). La UI lo
+    muestra cuando bajo-minimo esta vacio para que el operador sepa
+    que ya hay una solicitud en curso.
+
+    BUG 12 (fix 2026-07-23): se ampla de "PENDING" a "estados donde el
+    stock no ha llegado al destino". Asi, si el usuario aprueba la
+    solicitud (PENDING -> APPROVED), el SKU sigue apareciendo en este
+    bloque en vez de quedar huerfano sin alerta.
     """
 
     total_skus_cubiertos: int

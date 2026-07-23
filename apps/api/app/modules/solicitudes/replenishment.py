@@ -241,13 +241,26 @@ class ReplenishmentEvaluator:
         # sin atender. La regla correcta es POR (bodega_origen, producto):
         # si ya hay linea PENDING para ese (bodega, producto), se omite
         # solo ese producto, no toda la bodega.
+        #
+        # BUG 12 (fix 2026-07-23): ampliamos la cobertura a todos los
+        # estados donde el stock NO ha llegado al destino:
+        # pending, approved, in_transit, partially_received. Antes solo
+        # contabamos pending, asi que al aprobar una solicitud
+        # (PENDING -> APPROVED) el Evaluator re-generaba la linea aunque
+        # la solicitud aprobada seguia activa y la entrega era inminente.
         product_ids = [s.product_id for s in stocks]
+        ESTADOS_ACTIVOS = (
+            SolicitudEstado.PENDING.value,
+            SolicitudEstado.APPROVED.value,
+            SolicitudEstado.IN_TRANSIT.value,
+            SolicitudEstado.PARTIALLY_RECEIVED.value,
+        )
         pendiente_stmt = (
             select(DetalleSolicitudRecarga.id_producto)
             .join(SolicitudRecarga, DetalleSolicitudRecarga.id_solicitud == SolicitudRecarga.id)
             .where(
                 SolicitudRecarga.id_bodega_origen == wh.id,
-                SolicitudRecarga.estado == SolicitudEstado.PENDING.value,
+                SolicitudRecarga.estado.in_(ESTADOS_ACTIVOS),
                 DetalleSolicitudRecarga.id_producto.in_(product_ids),
             )
         )
