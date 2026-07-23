@@ -298,7 +298,7 @@ class SolicitudService:
     async def list(
         self,
         *,
-        estado: str | None = None,
+        estado: str | list[str] | None = None,
         id_bodega_origen: uuid.UUID | None = None,
         id_bodega_destino: uuid.UUID | None = None,
         fecha_desde=None,

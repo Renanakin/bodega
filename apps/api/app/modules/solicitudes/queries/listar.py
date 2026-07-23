@@ -13,7 +13,7 @@ async def list_solicitudes(
     session: AsyncSession,
     repo,
     *,
-    estado: str | None = None,
+    estado: str | list[str] | None = None,
     id_bodega_origen: uuid.UUID | None = None,
 ) -> list[SolicitudView]:
     """Lista solicitudes con filtros (compat con tests previos)."""
@@ -25,7 +25,7 @@ async def list_with_filters(
     session: AsyncSession,
     repo,
     *,
-    estado: str | None = None,
+    estado: str | list[str] | None = None,
     id_bodega_origen: uuid.UUID | None = None,
     id_bodega_destino: uuid.UUID | None = None,
     fecha_desde: datetime | None = None,

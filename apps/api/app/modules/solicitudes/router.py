@@ -137,7 +137,13 @@ async def create_solicitud(
 
 @router.get("", response_model=list[SolicitudResponse])
 async def list_solicitudes(
-    estado: str | None = Query(default=None),
+    # BUG 6 (fix 2026-07-22): estado acepta lista para que el
+    # Consolidador pueda pedir ?estado=pending&estado=approved&estado=in_transit
+    # en un solo GET. Antes la firma era ``str | None`` y FastAPI solo
+    # respetaba el primer valor, dejando el resto silenciosamente
+    # ignorado (asi el consolidador veia 0 solicitudes aunque hubiera
+    # pendientes, aprobadas o in_transit).
+    estado: list[str] | None = Query(default=None),
     bodega_origen_id: uuid.UUID | None = Query(default=None),
     bodega_destino_id: uuid.UUID | None = Query(default=None),
     fecha_desde: datetime | None = Query(default=None),
@@ -156,8 +162,12 @@ async def list_solicitudes(
     service: SolicitudService = Depends(get_solicitud_service),
 ) -> list[SolicitudResponse]:
     """Lista solicitudes con filtros opcionales."""
+    # FastAPI entrega una lista vacia cuando el param no aparece; lo
+    # normalizamos a None para que el service aplique la semantica
+    # "sin filtro" en lugar de "estado IN ()" que devolveria vacio.
+    estados = estado if estado else None
     views = await service.list(
-        estado=estado,
+        estado=estados,
         id_bodega_origen=bodega_origen_id,
         id_bodega_destino=bodega_destino_id,
         fecha_desde=fecha_desde,

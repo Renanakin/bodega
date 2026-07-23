@@ -36,6 +36,10 @@ _ESTADOS_MODELO: frozenset[str] = frozenset(
     {"pending", "approved", "in_transit", "partially_received", "received", "rejected", "cancelled"}
 )
 
+# Alias de la API publica: 'partial' -> 'partially_received'.
+# (El servicio expone 'partial' en la API y 'partially_received' en la BD.)
+_ESTADO_API_INV: dict[str, str] = {"partial": "partially_received"}
+
 
 def _validate_estado(estado: str) -> None:
     """Helper: rechaza valores fuera del namespace del modelo."""
@@ -150,7 +154,7 @@ class SolicitudRepository:
     async def list(
         self,
         *,
-        estado: str | None = None,
+        estado: str | list[str] | None = None,
         id_bodega_origen: uuid.UUID | None = None,
         id_bodega_destino: uuid.UUID | None = None,
         fecha_desde: datetime | None = None,
@@ -165,12 +169,31 @@ class SolicitudRepository:
         cada solicitud. Para N=50 con M=5 lineas = 51 queries; aceptable
         en UI. Si hace falta, agregar un endpoint dedicado y usar
         `selectinload` via una CTE cuando se migre a Postgres puro.
+
+        ``estado`` acepta una lista de estados para usar IN (...) en el
+        WHERE. Esto es lo que necesita el Consolidador de Quiebres para
+        #         ``?estado=pending&estado=approved&estado=in_transit`` en
+        un solo GET. Si se pasa una lista vacia se ignora el filtro.
         """
-        if estado is not None:
-            _validate_estado(estado)
+        # Normalizar lista vacia / string vacio a None para no generar
+        # un ``IN ()`` que devuelva cero filas.
+        estados: list[str] | None
+        if estado is None or estado == "":
+            estados = None
+        elif isinstance(estado, str):
+            estados = [estado]
+        else:
+            estados = list(estado) if estado else None
+        if estados:
+            for e in estados:
+                _validate_estado(e)
         conditions = []
-        if estado is not None:
-            conditions.append(SolicitudRecarga.estado == estado)
+        if estados:
+            # Aceptar alias de la API ('partial' -> 'partially_received').
+            normalizadas = [
+                _ESTADO_API_INV.get(e, e) for e in estados
+            ]
+            conditions.append(SolicitudRecarga.estado.in_(normalizadas))
         if id_bodega_origen is not None:
             conditions.append(SolicitudRecarga.id_bodega_origen == id_bodega_origen)
         if id_bodega_destino is not None:

@@ -6,6 +6,13 @@
 // Reglas:
 // - Carga solicitudes en estados que consumen stock de la Principal:
 //   `pending`, `approved`, `in_transit`.
+// - BUG 6 (fix 2026-07-22): filtra ademas por origen == bodega principal
+//   activa. Una solicitud donde origen != principal (ej. auxiliar -> otra
+//   auxiliar, o auxiliar -> principal como devolucion) NO consume stock
+//   de la principal y por tanto no genera deficit para el consolidador.
+// - Toma la bodega principal que este activa y tenga nombre consistente
+//   con el dominio (Bodega Central / Principal). Si hay varias marcadas
+//   como principal, prioriza is_active=true y luego la de mayor stock.
 // - Agrupa lineas por producto y suma cantidades solicitadas = demanda.
 // - Compara con stock disponible en Principal (StockLevel.quantity).
 // - Si demanda > stock disponible => deficit => "Requiere compra".
@@ -17,11 +24,39 @@ import { useNavigate } from "react-router-dom";
 
 import { getErrorMessage, getJson } from "../lib/api";
 
+// Estados que comprometen stock futuro de la principal.
 const ESTADOS_CONSUMEN = ["pending", "approved", "in_transit"];
 
 function formatCantidad(value) {
   if (value === null || value === undefined) return "-";
   return Number(value).toLocaleString("es-CL", { maximumFractionDigits: 2 });
+}
+
+/**
+ * Elige la bodega principal de forma robusta cuando hay varias marcadas
+ * como ``warehouse_type=principal`` (caso comun en seeds de test o
+ * estados heredados). Prioriza:
+ * 1) is_active=true
+ * 2) nombre que parezca "principal"/"central" (heuristica)
+ * 3) mayor stock_levels.quantity agregado (si esta disponible)
+ * 4) primera del listado como ultimo recurso
+ */
+function elegirBodegaPrincipal(bodegas, stockPorBodega = new Map()) {
+  if (!Array.isArray(bodegas) || bodegas.length === 0) return null;
+  const principales = bodegas.filter((b) => b.warehouse_type === "principal");
+  if (principales.length === 0) return null;
+  if (principales.length === 1) return principales[0];
+
+  const ordenadas = [...principales].sort((a, b) => {
+    if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+    const aLooks = /principal|central/i.test(a.name || "") ? 1 : 0;
+    const bLooks = /principal|central/i.test(b.name || "") ? 1 : 0;
+    if (aLooks !== bLooks) return bLooks - aLooks;
+    const aStock = stockPorBodega.get(a.id) || 0;
+    const bStock = stockPorBodega.get(b.id) || 0;
+    return bStock - aStock;
+  });
+  return ordenadas[0];
 }
 
 export function ConsolidadorCentralPage() {
@@ -31,12 +66,15 @@ export function ConsolidadorCentralPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [solicitudesIncluidas, setSolicitudesIncluidas] = useState(0);
+  const [bodegaPrincipal, setBodegaPrincipal] = useState(null);
+  const [warning, setWarning] = useState("");
 
   const cargar = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setWarning("");
     try {
-      // 1. Cargar solicitudes que consumen stock de Principal.
+      // 1. Cargar solicitudes en estados que consumen stock futuro.
       // NOTA: limit=1000 debe coincidir con el ``le=1000`` del router
       // backend (GET /solicitudes). El cap se subio para soportar este
       // reporte agregado: si la operacion crece mas alla, se debera
@@ -47,42 +85,89 @@ export function ConsolidadorCentralPage() {
       params.set("limit", "1000");
       const solicitudes = await getJson(`/solicitudes?${params.toString()}`);
 
-      // 2. Cargar bodegas para encontrar la principal
-      const bodegas = await getJson("/warehouses");
-      const bodegaPrincipal = (Array.isArray(bodegas) ? bodegas : []).find(
-        (b) => b.warehouse_type === "principal",
-      );
+      // 2. Cargar bodegas y stock agregado por bodega en paralelo.
+      // El stock lo agregamos en cliente por bodega_id para alimentar la
+      // heuristica de eleccion de principal.
+      const [bodegas, stockList] = await Promise.all([
+        getJson("/warehouses"),
+        getJson("/inventario/real").catch(() => []),
+      ]);
+      const stockPorBodega = new Map();
+      for (const s of stockList || []) {
+        const prev = stockPorBodega.get(s.bodega_id) || 0;
+        stockPorBodega.set(s.bodega_id, prev + Number(s.quantity || 0));
+      }
+      const principal = elegirBodegaPrincipal(bodegas, stockPorBodega);
+      setBodegaPrincipal(principal);
 
-      if (!bodegaPrincipal) {
+      if (!principal) {
         setQuiebres([]);
         setSolicitudesIncluidas(0);
+        setWarning(
+          "No hay bodega marcada como 'principal'. Crea una para usar el consolidador.",
+        );
         return;
       }
 
-      // 3. Cargar stock real de Principal
-      const stockList = await getJson(
-        `/inventario/real?warehouse_id=${bodegaPrincipal.id}`,
+      // 3. Filtrar solicitudes: en este sistema, bodega_origen es la
+      // bodega que RECIBE stock y bodega_destino es la que ENTREGA.
+      // El backend rechaza con 400 "invalid_solicitud_direction" si
+      // origen es principal. Esto significa que las recargas se modelan
+      // como origen=auxiliar, destino=principal (la principal entrega).
+      // Por tanto, las solicitudes que comprometen stock de la principal
+      // son las que tienen bodega_destino_id == principal.id.
+      //
+      // Esta es la inversa de la convencion SQL comun ("origen = el
+      // que emite"). En el dominio, "origen" semantica es "donde se
+      // origina la necesidad" (la auxiliar), no "donde sale el stock".
+      const solicitudesQueEntregan = (solicitudes || []).filter(
+        (s) => s.bodega_destino_id === principal.id,
       );
-      const stockPorProducto = new Map();
-      for (const s of stockList || []) {
-        // El backend expone `bodega_id` en la respuesta (snake_case de
-        // la BD legacy). Mapeamos el stock por producto.
-        stockPorProducto.set(s.producto_id, Number(s.quantity || 0));
+      const solicitudesQueReciben = (solicitudes || []).filter(
+        (s) => s.bodega_origen_id === principal.id,
+      );
+      // Para el contador "Solicitudes analizadas" mostramos el total
+      // de solicitudes que tocan la principal (en cualquier direccion).
+      const solicitudesQueTocanPrincipal = (solicitudes || []).filter(
+        (s) =>
+          s.bodega_origen_id === principal.id ||
+          s.bodega_destino_id === principal.id,
+      );
+
+      // Warning si habia varias bodegas principales para que el operador
+      // sepa cual se eligio (en vez de mostrarlo silenciosamente).
+      const candidatos = (bodegas || []).filter(
+        (b) => b.warehouse_type === "principal",
+      );
+      if (candidatos.length > 1) {
+        const otras = candidatos
+          .filter((b) => b.id !== principal.id)
+          .map((b) => `${b.code}${b.is_active ? "" : " (INACTIVA)"}`)
+          .join(", ");
+        setWarning(
+          `Hay ${candidatos.length} bodegas marcadas como principal; se usa "${principal.code}". Otras ignoradas: ${otras}.`,
+        );
       }
 
-      // 4. Cargar catalogo de productos (para sku/nombre)
-      // El endpoint actual de products NO filtra por is_active, asi que
-      // se asume que la operacion normal mantiene productos inactivos
-      // fuera del flujo.
+      // 4. Stock disponible por producto en la principal
+      const stockPorProducto = new Map();
+      for (const s of stockList || []) {
+        if (s.bodega_id === principal.id) {
+          stockPorProducto.set(s.producto_id, Number(s.quantity || 0));
+        }
+      }
+
+      // 5. Catalogo de productos (para sku/nombre)
       const productos = await getJson("/products");
       const productoPorId = new Map();
       for (const p of productos || []) {
         productoPorId.set(p.id, p);
       }
 
-      // 5. Agregar demanda por producto (suma de todas las lineas)
+      // 6. Agregar demanda por producto (suma de las lineas de las
+      // solicitudes que la principal debe ENTREGAR).
       const demandaPorProducto = new Map();
-      for (const sol of solicitudes || []) {
+      for (const sol of solicitudesQueEntregan) {
         for (const d of sol.lineas || []) {
           if (Number(d.cantidad_solicitada) > 0) {
             const prev = demandaPorProducto.get(d.producto_id) || 0;
@@ -94,7 +179,7 @@ export function ConsolidadorCentralPage() {
         }
       }
 
-      // 6. Calcular deficit
+      // 7. Calcular deficit
       const items = [];
       for (const [productoId, demanda] of demandaPorProducto.entries()) {
         const stock = stockPorProducto.get(productoId) || 0;
@@ -113,7 +198,10 @@ export function ConsolidadorCentralPage() {
       items.sort((a, b) => b.deficit - a.deficit);
 
       setQuiebres(items);
-      setSolicitudesIncluidas((solicitudes || []).length);
+      setSolicitudesIncluidas(solicitudesQueTocanPrincipal.length);
+      // Mantenemos las variables calculadas disponibles para futuros
+      // reportes (info de entrada vs salida de stock).
+      void solicitudesQueReciben;
     } catch (err) {
       setError(getErrorMessage(err, "No se pudo consolidar quiebres."));
     } finally {
@@ -135,7 +223,7 @@ export function ConsolidadorCentralPage() {
   const crearOC = (quibre) => {
     // Navega a /ordenes-compra con prefill via location state
     const prefill = {
-      id_bodega_principal: null, // se resuelve en el form con la lista de bodegas
+      id_bodega_principal: bodegaPrincipal?.id || null,
       id_supervisor: "",
       proveedor_nombre: "",
       proveedor_contacto: "",
@@ -162,9 +250,15 @@ export function ConsolidadorCentralPage() {
             Consolidador de Quiebres
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Productos con solicitudes activas cuya demanda agregada supera
-            el stock disponible en la Bodega Principal. Cada fila marcada
-            en rojo representa un deficit que requiere compra externa.
+            Productos con solicitudes activas que la Bodega Principal
+            debe surtir. La demanda se calcula como la suma de cantidades
+            en solicitudes donde la principal es destino (entrega stock);
+            las solicitudes donde la principal es origen (recibe stock)
+            no cuentan como consumo futuro. Cada fila marcada en rojo
+            representa un deficit que requiere compra externa.
+            {bodegaPrincipal
+              ? ` Bodega principal usada: ${bodegaPrincipal.code} - ${bodegaPrincipal.name}.`
+              : null}
           </p>
         </div>
         <button
@@ -175,6 +269,12 @@ export function ConsolidadorCentralPage() {
           Refrescar
         </button>
       </header>
+
+      {warning ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong className="font-semibold">Aviso:</strong> {warning}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -217,8 +317,9 @@ export function ConsolidadorCentralPage() {
               Sin solicitudes pendientes de despacho
             </p>
             <p className="mt-1 text-sm text-slate-500">
-              El consolidador se actualiza cada vez que se crean o
-              aprueban solicitudes nuevas.
+              {bodegaPrincipal
+                ? `No hay solicitudes en estado pending/approved/in_transit que la ${bodegaPrincipal.code} deba surtir.`
+                : "El consolidador se actualiza cada vez que se crean o aprueban solicitudes nuevas."}
             </p>
           </div>
         ) : (
@@ -293,11 +394,13 @@ export function ConsolidadorCentralPage() {
       <p className="text-xs text-slate-500">
         Logica:{" "}
         <code className="rounded bg-slate-100 px-1">deficit = demanda_total - stock_disponible</code>
-        . Demanda = suma de cantidades en solicitudes en estado{" "}
+        . Demanda = suma de cantidades en solicitudes que la Bodega
+        Principal debe ENTREGAR (destino = principal, origen = auxiliar
+        o box) en estado{" "}
         <code className="rounded bg-slate-100 px-1">pending</code>,{" "}
         <code className="rounded bg-slate-100 px-1">approved</code> o{" "}
-        <code className="rounded bg-slate-100 px-1">in_transit</code>. Stock
-        se lee de{" "}
+        <code className="rounded bg-slate-100 px-1">in_transit</code>.
+        Stock se lee de{" "}
         <code className="rounded bg-slate-100 px-1">stock_levels.quantity</code>{" "}
         en la Bodega Principal.
       </p>
