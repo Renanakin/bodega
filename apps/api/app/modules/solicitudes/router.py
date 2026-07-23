@@ -143,7 +143,15 @@ async def list_solicitudes(
     fecha_desde: datetime | None = Query(default=None),
     fecha_hasta: datetime | None = Query(default=None),
     skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        # Subido a 1000 para soportar el Consolidador de Quiebres, que
+        # necesita agregar TODAS las solicitudes activas (pending,
+        # approved, in_transit) en una sola vista. El default se mantiene
+        # en 50 para el uso normal de la bandeja.
+        le=1000,
+    ),
     _=Depends(get_current_user),
     service: SolicitudService = Depends(get_solicitud_service),
 ) -> list[SolicitudResponse]:

@@ -36,10 +36,15 @@ export function ConsolidadorCentralPage() {
     setLoading(true);
     setError(null);
     try {
-      // 1. Cargar solicitudes que consumen stock de Principal
+      // 1. Cargar solicitudes que consumen stock de Principal.
+      // NOTA: limit=1000 debe coincidir con el ``le=1000`` del router
+      // backend (GET /solicitudes). El cap se subio para soportar este
+      // reporte agregado: si la operacion crece mas alla, se debera
+      // agregar paginacion o un endpoint dedicado tipo
+      // GET /solicitudes/todas que devuelva el agregado.
       const params = new URLSearchParams();
       ESTADOS_CONSUMEN.forEach((e) => params.append("estado", e));
-      params.set("limit", "500");
+      params.set("limit", "1000");
       const solicitudes = await getJson(`/solicitudes?${params.toString()}`);
 
       // 2. Cargar bodegas para encontrar la principal
