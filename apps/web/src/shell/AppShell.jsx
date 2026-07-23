@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { GlobalPendingBar } from "../components/GlobalPendingBar";
 import { NotificationsCenter } from "../components/NotificationsCenter";
 import { ToastViewport } from "../components/ToastViewport";
+import { TopbarSearch } from "../components/TopbarSearch";
 import { useAuth } from "../context/AuthContext";
 import { useUi } from "../context/UiContext";
 
@@ -141,11 +142,7 @@ export function AppShell() {
             <p className="muted-copy">Rol activo: {user?.role}</p>
           </div>
           <div className="topbar-search">
-            <input
-              className="search-input"
-              type="search"
-              placeholder="Buscar producto, SKU o transferencia"
-            />
+            <TopbarSearch />
           </div>
           <div className="topbar-actions">
             <NotificationsCenter />
