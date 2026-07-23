@@ -6,6 +6,7 @@ import {
   getJson,
   getStoredToken,
   postJson,
+  setStoredRefreshToken,
   setStoredToken,
 } from "../lib/api";
 
@@ -40,7 +41,11 @@ export function AuthProvider({ children }) {
 
   const login = async (username, password) => {
     const session = await postJson("/auth/login", { username, password });
-    setStoredToken(session.token);
+    // BUG 8 (fix 2026-07-23): guardar AMBOS tokens (access + refresh)
+    // para que el interceptor en lib/api.js pueda auto-refresh cuando
+    // el access token expire (1h). El refresh token vive 7 dias.
+    if (session.token) setStoredToken(session.token);
+    if (session.refresh_token) setStoredRefreshToken(session.refresh_token);
     const currentUser = await getJson("/auth/me");
     setUser(currentUser);
     return currentUser;

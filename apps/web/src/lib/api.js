@@ -1,9 +1,15 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
 const AUTH_TOKEN_KEY = "bodegaje_auth_token";
+const REFRESH_TOKEN_KEY = "bodegaje_refresh_token";
 
 function readStoredToken() {
   if (typeof window === "undefined") return "";
   return window.localStorage.getItem(AUTH_TOKEN_KEY) || "";
+}
+
+function readStoredRefreshToken() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(REFRESH_TOKEN_KEY) || "";
 }
 
 export class ApiError extends Error {
@@ -15,20 +21,79 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, options = {}) {
+// BUG 8 (fix 2026-07-23): cuando el access token expira o el backend lo
+// rechaza con 401, intentamos refresh con el refresh_token una vez y
+// reintentamos el request original. Si el refresh tambien falla, limpiamos
+// la sesion y dejamos que el caller muestre el error (el AuthContext
+// detecta la falta de token y redirige a /login).
+let refreshInFlight = null;
+
+async function tryRefresh() {
+  const refreshToken = readStoredRefreshToken();
+  if (!refreshToken) return false;
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!resp.ok) {
+        clearStoredToken();
+        return false;
+      }
+      const data = await resp.json();
+      if (data.token && data.refresh_token) {
+        setStoredToken(data.token);
+        setStoredRefreshToken(data.refresh_token);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+async function request(path, options = {}, _retried = false) {
   let response;
 
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
+  };
+  const token = readStoredToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(readStoredToken() ? { Authorization: `Bearer ${readStoredToken()}` } : {}),
-        ...(options.headers || {}),
-      },
-      ...options,
-    });
+    response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   } catch (error) {
     throw new ApiError("No se pudo conectar con la API.", 0, error);
+  }
+
+  // Si recibimos 401 y no hemos reintentado, intentar refresh una vez.
+  // Excluir solo los endpoints de autenticacion propiamente dichos
+  // (login, refresh, logout) para evitar loops infinitos. /auth/me
+  // SÍ entra al refresh, porque es el endpoint que el AuthContext
+  // usa para validar la sesion y donde la mayoria de los 401
+  // "fantasma" aparecen al cargar la pagina con token expirado.
+  const isAuthSelfCall =
+    path.startsWith("/auth/login") ||
+    path.startsWith("/auth/refresh") ||
+    path.startsWith("/auth/logout");
+  if (response.status === 401 && !_retried && !isAuthSelfCall) {
+    const refreshed = await tryRefresh();
+    if (refreshed) {
+      // Reintentar el request original con el nuevo token.
+      return request(path, options, true);
+    }
+    // Refresh fallo: limpiar sesion y dejar que el caller muestre el error.
+    clearStoredToken();
   }
 
   const contentType = response.headers.get("content-type") || "";
@@ -68,9 +133,20 @@ export function setStoredToken(token) {
   }
 }
 
+export function getStoredRefreshToken() {
+  return readStoredRefreshToken();
+}
+
+export function setStoredRefreshToken(token) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(REFRESH_TOKEN_KEY, token);
+  }
+}
+
 export function clearStoredToken() {
   if (typeof window !== "undefined") {
     window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
   }
 }
 
