@@ -44,9 +44,11 @@ from app.modules.solicitudes.replenishment import (
 from app.modules.solicitudes.schemas import (
     DistribucionMultibodegaResponse,
     ReplenishmentReportResponse,
+    SolicitudesCubrenBajoMinimoResponse,
     SolicitudAprobacion,
     SolicitudCancelacion,
     SolicitudCreate,
+    SolicitudCubreBajoMinimoItem,
     SolicitudDespacho,
     SolicitudLineaResponse,
     SolicitudRecepcion,
@@ -311,6 +313,141 @@ async def get_productos_bajo_minimo(
             )
         )
     return items
+
+
+@router.get(
+    "/bajo-minimo/cubiertos-por-pendientes",
+    response_model=SolicitudesCubrenBajoMinimoResponse,
+)
+async def get_bajo_minimo_cubiertos_por_pendientes(
+    _=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> SolicitudesCubrenBajoMinimoResponse:
+    """Lista (bodega, producto) bajo minimo que ya tienen linea en una
+    solicitud PENDING.
+
+    BUG 10 (fix 2026-07-23): cuando el Evaluator omite SKUs por
+    tener linea PENDING, el endpoint /bajo-minimo los excluye del
+    resultado (regla de idempotencia BUG 9). Eso hace que la UI
+    muestre 'Sin alertas' aunque si haya SKUs bajo minimo en el
+    sistema, solo que ya estan cubiertos. Este endpoint complementario
+    expone esa informacion para que la UI pueda mostrarla en el
+    empty state y el operador entienda por que no ve alertas.
+    """
+    # 1. SKUs bajo minimo en bodegas auxiliares activas.
+    wh_stmt = select(Warehouse).where(
+        Warehouse.warehouse_type == "auxiliar",
+        Warehouse.is_active.is_(True),
+    )
+    whs = list((await session.execute(wh_stmt)).scalars().all())
+    if not whs:
+        return SolicitudesCubrenBajoMinimoResponse(
+            total_skus_cubiertos=0,
+            solicitudes_involucradas=0,
+            items=[],
+        )
+    wh_ids = [wh.id for wh in whs]
+    wh_by_id = {wh.id: wh for wh in whs}
+
+    stock_stmt = select(StockLevel).where(
+        StockLevel.warehouse_id.in_(wh_ids),
+        StockLevel.min_quantity > 0,
+        StockLevel.quantity <= StockLevel.min_quantity,
+    )
+    stocks = list((await session.execute(stock_stmt)).scalars().all())
+    if not stocks:
+        return SolicitudesCubrenBajoMinimoResponse(
+            total_skus_cubiertos=0,
+            solicitudes_involucradas=0,
+            items=[],
+        )
+
+    # 2. JOIN con lineas PENDING: (warehouse, producto) cubiertos.
+    product_ids = list({s.product_id for s in stocks})
+    stmt = (
+        select(
+            DetalleSolicitudRecarga.id_producto,
+            DetalleSolicitudRecarga.cantidad_solicitada,
+            DetalleSolicitudRecarga.cantidad_despachada,
+            SolicitudRecarga.id,
+            SolicitudRecarga.codigo,
+            SolicitudRecarga.id_bodega_origen,
+            SolicitudRecarga.created_at,
+        )
+        .join(SolicitudRecarga, DetalleSolicitudRecarga.id_solicitud == SolicitudRecarga.id)
+        .where(
+            SolicitudRecarga.id_bodega_origen.in_(wh_ids),
+            SolicitudRecarga.estado == SolicitudEstado.PENDING.value,
+            DetalleSolicitudRecarga.id_producto.in_(product_ids),
+        )
+    )
+    rows = (await session.execute(stmt)).all()
+    if not rows:
+        return SolicitudesCubrenBajoMinimoResponse(
+            total_skus_cubiertos=0,
+            solicitudes_involucradas=0,
+            items=[],
+        )
+
+    # 3. Cachear productos
+    productos_by_id: dict[uuid.UUID, Product] = {
+        p.id: p
+        for p in (
+            await session.execute(
+                select(Product).where(Product.id.in_(product_ids))
+            )
+        )
+        .scalars()
+        .all()
+    }
+
+    # 4. Indice stock por (warehouse, product)
+    stock_by_key: dict[tuple[uuid.UUID, uuid.UUID], StockLevel] = {
+        (s.warehouse_id, s.product_id): s for s in stocks
+    }
+
+    items: list[SolicitudCubreBajoMinimoItem] = []
+    solicitudes_set: set[uuid.UUID] = set()
+    for (
+        id_producto,
+        cant_solicitada,
+        cant_despachada,
+        sol_id,
+        sol_codigo,
+        wh_id,
+        created_at,
+    ) in rows:
+        wh = wh_by_id.get(wh_id)
+        prod = productos_by_id.get(id_producto)
+        stock = stock_by_key.get((wh_id, id_producto))
+        if wh is None or prod is None or stock is None:
+            continue
+        items.append(
+            SolicitudCubreBajoMinimoItem(
+                solicitud_id=sol_id,
+                solicitud_codigo=sol_codigo,
+                bodega_id=wh.id,
+                bodega_codigo=wh.code,
+                bodega_nombre=wh.name,
+                producto_id=prod.id,
+                producto_sku=prod.sku,
+                producto_nombre=prod.name,
+                stock_actual=stock.quantity,
+                stock_minimo=stock.min_quantity,
+                cantidad_solicitada=cant_solicitada,
+                cantidad_despachada=cant_despachada,
+                created_at=created_at,
+            )
+        )
+        solicitudes_set.add(sol_id)
+
+    # Ordenar por solicitud (mas reciente primero) y luego por sku
+    items.sort(key=lambda it: (it.created_at, it.solicitud_codigo), reverse=True)
+    return SolicitudesCubrenBajoMinimoResponse(
+        total_skus_cubiertos=len(items),
+        solicitudes_involucradas=len(solicitudes_set),
+        items=items,
+    )
 
 
 # ===================================================================== GET ONE

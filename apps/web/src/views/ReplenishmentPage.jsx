@@ -36,6 +36,7 @@ export function ReplenishmentPage() {
   const { pushToast, setPendingLabel, clearPending } = useUi();
 
   const [items, setItems] = useState([]);
+  const [cubiertos, setCubiertos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastReport, setLastReport] = useState(null);
@@ -51,8 +52,16 @@ export function ReplenishmentPage() {
     setError(null);
     try {
       const query = filtroBodega ? `?bodega_id=${filtroBodega}` : "";
-      const data = await getJson(`/solicitudes/bajo-minimo${query}`);
+      // BUG 10 (fix 2026-07-23): cargamos en paralelo bajo-minimo y
+      // bajo-minimo/cubiertos-por-pendientes. El segundo nos da
+      // contexto cuando el primero devuelve 0: hay SKUs bajo
+      // minimo pero ya estan cubiertos por solicitudes PENDING.
+      const [data, ctx] = await Promise.all([
+        getJson(`/solicitudes/bajo-minimo${query}`),
+        getJson("/solicitudes/bajo-minimo/cubiertos-por-pendientes").catch(() => null),
+      ]);
       setItems(Array.isArray(data) ? data : []);
+      setCubiertos(ctx && Array.isArray(ctx.items) ? ctx.items : []);
     } catch (err) {
       setError(getErrorMessage(err, "No se pudo cargar el catalogo bajo minimo."));
     } finally {
@@ -262,15 +271,50 @@ export function ReplenishmentPage() {
         ) : error ? (
           <p className="p-6 text-sm text-rose-600">Error: {error}</p>
         ) : itemsFiltrados.length === 0 ? (
-          <div className="p-8 text-center">
-            <p className="text-base font-semibold text-slate-700">
-              Sin alertas de stock bajo minimo
-            </p>
-            <p className="mt-1 text-sm text-slate-500">
-              Todas las bodegas auxiliares tienen su stock sobre el minimo
-              configurado. El sistema volvera a evaluar en la proxima corrida
-              automatica.
-            </p>
+          <div className="p-8">
+            <div className="text-center">
+              <p className="text-base font-semibold text-slate-700">
+                Sin alertas de stock bajo minimo
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                {cubiertos.length > 0
+                  ? "Todas las bodegas auxiliares tienen su stock bajo minimo cubierto por solicitudes PENDING."
+                  : "Todas las bodegas auxiliares tienen su stock sobre el minimo configurado. El sistema volvera a evaluar en la proxima corrida automatica."}
+              </p>
+            </div>
+            {cubiertos.length > 0 ? (
+              <div className="mx-auto mt-6 max-w-3xl overflow-hidden rounded-lg border border-amber-200 bg-amber-50">
+                <div className="border-b border-amber-200 bg-amber-100 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-900">
+                  SKUs bajo minimo cubiertos por solicitudes pendientes ({cubiertos.length})
+                </div>
+                <ul className="divide-y divide-amber-200 text-sm">
+                  {cubiertos.map((it) => (
+                    <li
+                      key={`${it.solicitud_id}-${it.bodega_id}-${it.producto_id}`}
+                      className="flex flex-wrap items-center gap-2 px-4 py-2 text-amber-900"
+                    >
+                      <span className="font-mono text-xs font-semibold">
+                        {it.producto_sku}
+                      </span>
+                      <span className="text-amber-800">{it.producto_nombre}</span>
+                      <span className="text-amber-700">en</span>
+                      <span className="font-mono text-xs">{it.bodega_codigo}</span>
+                      <span className="ml-auto text-xs text-amber-700">
+                        Stock {formatCantidad(it.stock_actual)} / min{" "}
+                        {formatCantidad(it.stock_minimo)} - solicita{" "}
+                        {formatCantidad(it.cantidad_solicitada)}
+                      </span>
+                      <a
+                        href={`/solicitudes?highlight=${encodeURIComponent(it.solicitud_id)}`}
+                        className="rounded border border-amber-300 bg-white px-2 py-0.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                      >
+                        {it.solicitud_codigo}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -346,8 +390,9 @@ export function ReplenishmentPage() {
         (o <code className="rounded bg-slate-100 px-1">min*2 - actual</code> si max
         no esta definido). Prioridad{" "}
         <span className="font-semibold text-amber-700">alta</span> cuando el
-        stock cae bajo el 50% del minimo. Idempotente: si ya hay una solicitud
-        PENDING para la bodega, se omite.
+        stock cae bajo el 50% del minimo. Idempotente: si ya hay una linea
+        PENDING para el mismo (bodega, producto), se omite ese SKU;
+        el resto se procesa normalmente.
       </p>
     </div>
   );

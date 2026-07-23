@@ -306,6 +306,42 @@ class StockBajoMinimoResponse(BaseModel):
     prioridad: Literal["normal", "alta", "urgente"]
 
 
+class SolicitudCubreBajoMinimoItem(BaseModel):
+    """Una linea del reporte 'solicitudes pendientes que cubren bajo minimo'.
+
+    Indica que este (bodega_id, producto_id) esta bajo minimo y que ya
+    hay una solicitud PENDING que lo cubre. Sirve para que la UI del
+    Replenishment muestre contexto cuando ``/bajo-minimo`` devuelve 0:
+    el usuario entiende que 'no hay alertas nuevas' porque ya hay una
+    solicitud cubriendo esos SKUs.
+    """
+
+    solicitud_id: UUID
+    solicitud_codigo: str
+    bodega_id: UUID
+    bodega_codigo: str
+    bodega_nombre: str
+    producto_id: UUID
+    producto_sku: str
+    producto_nombre: str
+    stock_actual: Decimal
+    stock_minimo: Decimal
+    cantidad_solicitada: Decimal
+    cantidad_despachada: Decimal
+    created_at: datetime
+
+
+class SolicitudesCubrenBajoMinimoResponse(BaseModel):
+    """Listado de (bodega, producto) bajo minimo cubiertos por solicitudes
+    PENDING existentes. La UI lo muestra cuando bajo-minimo esta vacio
+    para que el operador sepa que ya hay una solicitud en curso.
+    """
+
+    total_skus_cubiertos: int
+    solicitudes_involucradas: int
+    items: list[SolicitudCubreBajoMinimoItem]
+
+
 # ============================================================ TRANSFERS LEGACY (derivada)
 
 
