@@ -31,7 +31,11 @@ from typing import TYPE_CHECKING
 from app.core.logging import get_logger
 from app.db.models.inventory import StockLevel
 from app.db.models.products import Product
-from app.db.models.solicitudes import SolicitudEstado, SolicitudRecarga
+from app.db.models.solicitudes import (
+    DetalleSolicitudRecarga,
+    SolicitudEstado,
+    SolicitudRecarga,
+)
 from app.db.models.warehouses import Warehouse
 from app.modules.solicitudes.service import SolicitudService
 from sqlalchemy import select
@@ -217,20 +221,6 @@ class ReplenishmentEvaluator:
             report.errores.append(f"No hay bodega principal para atender a {wh.code}")
             return report
 
-        # Idempotencia (R6): si ya hay solicitud PENDING desde esta bodega, omitir
-        pendiente_stmt = select(SolicitudRecarga).where(
-            SolicitudRecarga.id_bodega_origen == wh.id,
-            SolicitudRecarga.estado == SolicitudEstado.PENDING.value,
-        )
-        if (await self._session.execute(pendiente_stmt)).scalars().first() is not None:
-            report.solicitudes_omitidas_pendientes += 1
-            log.info(
-                "replenishment.skipped_pending",
-                bodega=wh.code,
-                motivo="solicitud PENDING existente",
-            )
-            return report
-
         # Stock bajo minimo
         stock_stmt = select(StockLevel).where(
             StockLevel.warehouse_id == wh.id,
@@ -243,12 +233,47 @@ class ReplenishmentEvaluator:
         if not stocks:
             return report
 
+        # BUG 9 (fix 2026-07-23): la idempotencia R6 antes era por bodega
+        # completa ("si ya hay una solicitud PENDING desde esta bodega,
+        # omitir TODA la bodega"). Eso era incorrecto: una bodega puede
+        # tener varios SKUs bajo minimo, y bloquear toda la bodega cuando
+        # ya hay 1 solicitud pendiente de otro SKU dejaba SKUs criticos
+        # sin atender. La regla correcta es POR (bodega_origen, producto):
+        # si ya hay linea PENDING para ese (bodega, producto), se omite
+        # solo ese producto, no toda la bodega.
+        product_ids = [s.product_id for s in stocks]
+        pendiente_stmt = (
+            select(DetalleSolicitudRecarga.id_producto)
+            .join(SolicitudRecarga, DetalleSolicitudRecarga.id_solicitud == SolicitudRecarga.id)
+            .where(
+                SolicitudRecarga.id_bodega_origen == wh.id,
+                SolicitudRecarga.estado == SolicitudEstado.PENDING.value,
+                DetalleSolicitudRecarga.id_producto.in_(product_ids),
+            )
+        )
+        productos_con_pendiente: set[uuid.UUID] = {
+            row[0] for row in (await self._session.execute(pendiente_stmt)).all()
+        }
+        if productos_con_pendiente:
+            log.info(
+                "replenishment.skipped_pending_per_product",
+                bodega=wh.code,
+                omitidos=len(productos_con_pendiente),
+                motivo="linea PENDING existente por producto",
+            )
+
         # Construir lineas. Agrupamos por prioridad para no generar
         # 1 solicitud por SKU (eso seria ruido): una sola solicitud
         # por bodega con todas las lineas necesarias.
         lineas: list[dict] = []
         prioridades: set[str] = set()
+        omitidas_count = 0
         for stock in stocks:
+            # Idempotencia por producto: si este (bodega, producto)
+            # ya tiene linea PENDING, omitir SOLO este producto.
+            if stock.product_id in productos_con_pendiente:
+                omitidas_count += 1
+                continue
             cantidad = _calcular_cantidad(stock)
             if cantidad <= 0:
                 continue
@@ -270,6 +295,9 @@ class ReplenishmentEvaluator:
                     "cantidad_solicitada": cantidad,
                 }
             )
+
+        # Reportar SKUs omitidos por (bodega, producto) pendiente.
+        report.solicitudes_omitidas_pendientes += omitidas_count
 
         if not lineas:
             return report

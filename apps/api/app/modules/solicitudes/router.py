@@ -31,6 +31,7 @@ from typing import Any
 
 from app.db.models.inventory import StockLevel
 from app.db.models.products import Product
+from app.db.models.solicitudes import DetalleSolicitudRecarga, SolicitudEstado, SolicitudRecarga
 from app.db.models.warehouses import Warehouse
 from app.db.session import get_session
 from app.modules.auth.dependencies import require_roles
@@ -263,6 +264,25 @@ async def get_productos_bajo_minimo(
     }
 
     # 4. Armar la respuesta
+    # BUG 9 (fix 2026-07-23): excluir SKUs que ya tienen linea en una
+    # solicitud PENDING desde la misma bodega. Sin este filtro, la UI
+    # mostraba filas inactivas que el Evaluator iba a omitir al disparar
+    # (porque R6 = idempotencia por (bodega, producto)). El usuario
+    # veia la fila, hacia click en 'Generar solicitudes' y el reporte
+    # decia '0 creadas, 1 omitida' sin entender por que.
+    product_ids = list({s.product_id for s in stocks})
+    pendiente_lineas_stmt = (
+        select(DetalleSolicitudRecarga.id_producto, SolicitudRecarga.id_bodega_origen)
+        .join(SolicitudRecarga, DetalleSolicitudRecarga.id_solicitud == SolicitudRecarga.id)
+        .where(
+            SolicitudRecarga.id_bodega_origen.in_(wh_ids),
+            SolicitudRecarga.estado == SolicitudEstado.PENDING.value,
+            DetalleSolicitudRecarga.id_producto.in_(product_ids),
+        )
+    )
+    productos_pendientes: set[tuple[uuid.UUID, uuid.UUID]] = {
+        (row[0], row[1]) for row in (await session.execute(pendiente_lineas_stmt)).all()
+    }
     items: list[StockBajoMinimoResponse] = []
     for stock in stocks:
         prod = productos.get(stock.product_id)
@@ -270,6 +290,9 @@ async def get_productos_bajo_minimo(
             continue
         wh = bodegas_by_id.get(stock.warehouse_id)
         if wh is None:
+            continue
+        # Omitir si (bodega, producto) ya tiene linea PENDING.
+        if (stock.product_id, stock.warehouse_id) in productos_pendientes:
             continue
         items.append(
             StockBajoMinimoResponse(
