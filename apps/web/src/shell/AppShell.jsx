@@ -6,6 +6,8 @@ import { ToastViewport } from "../components/ToastViewport";
 import { TopbarSearch } from "../components/TopbarSearch";
 import { useAuth } from "../context/AuthContext";
 import { useUi } from "../context/UiContext";
+import { downloadCsv } from "../lib/export";
+import { getErrorMessage, getJson } from "../lib/api";
 
 const navigation = [
   { to: "/dashboard", label: "Dashboard", presentation: true },
@@ -40,6 +42,9 @@ export function AppShell() {
     nextPresentationStep,
     previousPresentationStep,
     setPresentationStep,
+    pushToast,
+    setPendingLabel,
+    clearPending,
   } = useUi();
   const currentStep =
     presentationSteps.find((step) => step.path === location.pathname) ||
@@ -61,6 +66,59 @@ export function AppShell() {
     const previousIndex = currentIndex >= 0 ? Math.max(currentIndex - 1, 0) : presentationStepIndex - 1;
     setPresentationStep(previousIndex);
     navigate(presentationSteps[previousIndex].path);
+  };
+
+  // "Exportar" del topbar: descarga el stock actual como CSV.
+  // Usa el mismo patron client-side que TabOperacional.
+  const handleExport = async () => {
+    setPendingLabel("Exportando inventario...");
+    try {
+      const rows = await getJson("/inventory/stock");
+      if (!Array.isArray(rows) || rows.length === 0) {
+        pushToast({
+          tone: "warning",
+          title: "Sin datos para exportar",
+          description: "El inventario esta vacio. Registra movimientos primero.",
+        });
+        return;
+      }
+      downloadCsv(
+        `inventario-${new Date().toISOString().slice(0, 10)}.csv`,
+        [
+          { key: "warehouse_code", label: "Codigo bodega" },
+          { key: "warehouse_name", label: "Bodega" },
+          { key: "product_sku", label: "SKU" },
+          { key: "product_name", label: "Producto" },
+          { key: "quantity", label: "Stock" },
+          { key: "min_quantity", label: "Minimo" },
+        ],
+        rows,
+      );
+      pushToast({
+        tone: "success",
+        title: "Exportacion lista",
+        description: `Se descargaron ${rows.length} filas de inventario.`,
+      });
+    } catch (error) {
+      pushToast({
+        tone: "danger",
+        title: "No se pudo exportar",
+        description: getErrorMessage(error),
+      });
+    } finally {
+      clearPending();
+    }
+  };
+
+  // "Nuevo movimiento" del topbar: navega a /inventory y dispara
+  // la apertura del drawer via ?new=movement (lo lee InventoryPage).
+  const handleNewMovement = () => {
+    navigate("/inventory?new=movement");
+  };
+
+  // "Productos" del topbar: navega al catalogo.
+  const handleGoProducts = () => {
+    navigate("/products");
   };
 
   return (
@@ -149,10 +207,28 @@ export function AppShell() {
             <button className="ghost-button" type="button" onClick={togglePresentationMode}>
               {presentationMode ? "Salir presentacion" : "Modo presentacion"}
             </button>
-            <button className="ghost-button" type="button">
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={handleGoProducts}
+              title="Ir al catalogo de productos"
+            >
+              Productos
+            </button>
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={handleExport}
+              title="Descargar inventario actual como CSV"
+            >
               Exportar
             </button>
-            <button className="primary-button" type="button">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={handleNewMovement}
+              title="Registrar un nuevo ajuste de inventario"
+            >
               Nuevo movimiento
             </button>
           </div>

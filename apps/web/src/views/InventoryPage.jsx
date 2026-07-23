@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { useSearchParams } from "react-router-dom";
 
 import { DrawerPanel } from "../components/DrawerPanel";
 import { EmptyState } from "../components/EmptyState";
@@ -41,6 +43,18 @@ export function InventoryPage() {
   const [statusFilter, setStatusFilter] = useState("Todos");
   const { stock, movements, warehouses, products, loading, error, refresh } =
     useReviewMvpData();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Si llega con ?new=movement, abre el drawer automaticamente.
+  // Esto es lo que dispara el boton "Nuevo movimiento" del topbar.
+  useEffect(() => {
+    if (searchParams.get("new") === "movement") {
+      setDrawerOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("new");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const stockRows = stock
