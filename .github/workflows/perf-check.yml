@@ -1,0 +1,90 @@
+name: Performance check (Big-O)
+
+# P3 del roadmap Big-O (docs/informe_escalabilidad_big_o.md):
+# corre el script de EXPLAIN ANALYZE en cada PR para detectar
+# regresiones de performance antes de mergear.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/api/app/**'
+      - 'apps/api/alembic/versions/**'
+      - 'db/migrations/**'
+      - 'tests/perf/**'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/app/**'
+      - 'apps/api/alembic/versions/**'
+      - 'db/migrations/**'
+
+jobs:
+  perf-check:
+    name: Big-O compliance check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bodegaje
+          POSTGRES_PASSWORD: bodegaje
+          POSTGRES_DB: bodegaje
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bodegaje"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://bodegaje:bodegaje@localhost:5432/bodegaje
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install API dependencies
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install psycopg2-binary
+
+      - name: Initialize schema (create all)
+        working-directory: apps/api
+        run: |
+          # Crea todas las tablas via los modelos (no corre migraciones
+          # que requieren archivos .sql). Esto es suficiente para que
+          # el script de EXPLAIN pueda correr.
+          python -c "from app.db.base import Base; from app.db import models; Base.metadata.create_all(__import__('sqlalchemy').create_engine('$DATABASE_URL'.replace('+asyncpg', '')))"
+
+      - name: Run P1 migration (indices)
+        run: |
+          # Aplica la migracion 0014 que crea los indices Big-O.
+          # Es idempotente (IF NOT EXISTS).
+          PGPASSWORD=bodegaje psql -h localhost -U bodegaje -d bodegaje -f db/migrations/0014_performance_indices.sql
+        # Si el path difiere en el runner, ajustar arriba.
+
+      - name: Seed minimal data
+        run: |
+          # Genera volumen minimo (1000 stocks) para que el planner
+          # no use seq scan por falta de estadisticas.
+          python tests/perf/seed_scale.py --warehouses 50 --products 50 --movements 500
+
+      - name: Run EXPLAIN on critical queries
+        run: |
+          # threshold 10: cualquier Seq Scan que devuelva >10 filas FAIL.
+          # Si la BD no tiene volumen, el planner elige seq scan y falla,
+          # lo cual es OK (es una senal de que el seed no fue suficiente).
+          python tests/perf/explain_critical_queries.py --threshold 10
+
+      - name: Upload EXPLAIN artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: big-o-explain-${{ github.run_id }}
+          path: |
+            /tmp/explain_*.log
+          if-no-files-found: ignore

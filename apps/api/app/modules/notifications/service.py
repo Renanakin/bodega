@@ -24,6 +24,7 @@ Reglas:
 from __future__ import annotations
 
 import json
+import os
 import re
 import smtplib
 import uuid
@@ -361,9 +362,25 @@ class NotificationsService:
         Llamado por ``notifications/worker.py:main_loop``. En Arq el path
         canonico es ``process_one``.
 
+        P2 (roadmap Big-O): paraleliza el envio con ``asyncio.gather`` +
+        ``Semaphore(max_concurrent)``. Antes: 1 email a la vez (round-trips
+        secuenciales a SMTP). Despues: hasta ``max_concurrent`` envios
+        en paralelo.
+
+        Reglas:
+        - Cada ``process_one`` ya tiene su propia transaccion (commit
+          por email). La paralelizacion no comparte transacciones.
+        - El Semaphore limita concurrencia para no saturar SMTP ni abrir
+          N conexiones a la BD.
+        - Errores individuales NO cancelan el batch (``return_exceptions``).
+        - ``max_concurrent`` por defecto: 5 (configurable). Con 100 emails
+          pendientes y max=5: ~20 round-trips paralelos vs 100 secuenciales.
+
         Returns:
             Dict con conteo {sent, failed, retried, skipped}.
         """
+        import asyncio
+
         stmt = (
             select(EmailOutbox)
             .where(EmailOutbox.status == self.STATUS_PENDING)
@@ -373,9 +390,32 @@ class NotificationsService:
         result = await self._session.execute(stmt)
         outboxes = list(result.scalars().all())
 
+        if not outboxes:
+            return {"sent": 0, "failed": 0, "retried": 0, "skipped": 0}
+
+        # Limite de concurrencia configurable via env, default 5
+        max_concurrent = int(os.environ.get("EMAIL_OUTBOX_MAX_CONCURRENT", "5"))
+        sem = asyncio.Semaphore(max_concurrent)
+
+        async def _bounded(ob: EmailOutbox) -> dict:
+            async with sem:
+                # Cada process_one maneja su propia sesion/transaccion.
+                return await self.process_one(ob.id)
+
+        # P2 fix: gather paralelo con manejo de excepciones individuales.
+        # Antes: loop secuencial. Despues: hasta max_concurrent en paralelo.
+        results = await asyncio.gather(
+            *[_bounded(ob) for ob in outboxes],
+            return_exceptions=True,
+        )
+
         stats: dict[str, int] = {"sent": 0, "failed": 0, "retried": 0, "skipped": 0}
-        for ob in outboxes:
-            r = await self.process_one(ob.id)
+        for r in results:
+            if isinstance(r, Exception):
+                # Excepcion no capturada por process_one: contarla como failed
+                stats["failed"] += 1
+                log.warning("notifications.batch_unhandled_exception", error=str(r))
+                continue
             s = r["status"]
             if s == self.STATUS_SENT:
                 stats["sent"] += 1
@@ -387,7 +427,12 @@ class NotificationsService:
                 stats["skipped"] += 1
 
         await self._session.commit()
-        log.info("notifications.batch_processed", **stats)
+        log.info(
+            "notifications.batch_processed",
+            **stats,
+            batch_size=len(outboxes),
+            max_concurrent=max_concurrent,
+        )
         return stats
 
     # --------------------------------------------------------------- RETRY DEAD
