@@ -93,6 +93,24 @@ async def enviar_correo(
     await session.commit()
     await session.refresh(oc)
 
+    # BUG 14 (fix 2026-07-23): encolar el send_email_task en Arq para
+    # que el worker procese el outbox y envie el email via SMTP.
+    # Sin esto, el row queda en `email_outbox` con status=pending
+    # para siempre (el worker no sabe que existe).
+    try:
+        from app.worker import enqueue_send_email_task
+        await enqueue_send_email_task(str(outbox.id))
+    except Exception as exc:  # noqa: BLE001
+        # No rompemos el flujo principal: el email queda en outbox
+        # y se puede reintentar via retry_dead() o por operacion
+        # manual. Loggeamos el fallo para triage.
+        log.warning(
+            "orden_compra.enqueue_email_failed",
+            oc_id=str(oc.id),
+            outbox_id=str(outbox.id),
+            error=str(exc),
+        )
+
     log.info(
         "orden_compra.enviada",
         oc_id=str(oc.id),

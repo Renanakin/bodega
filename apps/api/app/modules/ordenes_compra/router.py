@@ -33,7 +33,16 @@ from app.modules.ordenes_compra.service import OrdenCompraService
 from fastapi import APIRouter, Body, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-router = APIRouter()
+# BUG 13 (fix 2026-07-23): redirect_slashes=False.
+# Nota historica: el bug original del flujo E2E (un POST daba 404 con
+# el cuerpo interpretado como oc_id) NO era de routing - era que el
+# script pasaba el id de `users` donde el endpoint espera id de
+# `supervisores`. El `redirect_slashes=False` se mantiene como safety
+# net: en este router coexisten `POST /` (raiz) y `POST /{oc_id}/...`
+# (sub-recursos), y el redirect default de Starlette puede enmascarar
+# errores del cliente. Con redirect_slashes=False, una URL mal
+# formada da 404 limpio en vez de un 307 confuso.
+router = APIRouter(redirect_slashes=False)
 
 
 def get_orden_service(session: AsyncSession = Depends(get_session)) -> OrdenCompraService:
@@ -72,6 +81,9 @@ def _to_response(view) -> OCResponse:  # type: ignore[no-untyped-def]
             for d in view.detalles
         ],
     )
+
+
+# --------------------------------------------------------------------------- LIST
 
 
 # --------------------------------------------------------------------------- LIST

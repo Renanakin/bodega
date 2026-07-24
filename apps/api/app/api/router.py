@@ -26,7 +26,14 @@ from app.modules.ubicaciones.router import router as ubicaciones_router
 from app.modules.warehouses.router import router as warehouses_router
 from fastapi import APIRouter
 
-api_router = APIRouter()
+# BUG 13 (fix 2026-07-23): redirect_slashes=False.
+# Ver apps/api/app/modules/ordenes_compra/router.py:38 para contexto.
+# Es un safety net global: cuando un cliente olvida el trailing slash,
+# Starlette responde 307 (redirect) que el cliente HTTP puede o no
+# seguir correctamente, y el resultado es ambiguo. Con
+# redirect_slashes=False, el 404 es limpio y el desarrollador sabe
+# inmediatamente que la URL es incorrecta.
+api_router = APIRouter(redirect_slashes=False)
 api_router.include_router(health_router, tags=["health"])
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 api_router.include_router(audit_router, prefix="/audit", tags=["audit"])

@@ -281,6 +281,7 @@ class ReplenishmentEvaluator:
         lineas: list[dict] = []
         prioridades: set[str] = set()
         omitidas_count = 0
+        omitidas_sin_stock_principal = 0
         for stock in stocks:
             # Idempotencia por producto: si este (bodega, producto)
             # ya tiene linea PENDING, omitir SOLO este producto.
@@ -300,6 +301,50 @@ class ReplenishmentEvaluator:
                     motivo="producto inactivo o inexistente",
                 )
                 continue
+            # BUG 15 (fix 2026-07-23): validar que la principal tenga
+            # stock disponible para servir esta solicitud. Sin este
+            # check, el Evaluator creaba solicitudes que el despacho
+            # rechazaba con `insufficient_stock` (la principal no
+            # tiene el SKU). Si la principal no tiene el SKU, omitir.
+            # Si tiene menos de lo necesario, ajustar la cantidad a
+            # lo disponible.
+            principal_stock_stmt = select(StockLevel).where(
+                StockLevel.warehouse_id == principal.id,
+                StockLevel.product_id == stock.product_id,
+            )
+            principal_stock = (await self._session.execute(principal_stock_stmt)).scalar_one_or_none()
+            if principal_stock is None or principal_stock.quantity <= 0:
+                omitidas_sin_stock_principal += 1
+                log.info(
+                    "replenishment.product_skipped",
+                    bodega=wh.code,
+                    product_id=str(stock.product_id),
+                    motivo="principal sin stock de este SKU",
+                )
+                continue
+            # Ajustar cantidad a lo realmente disponible en la principal
+            # (deja un margen minimo de seguridad: la principal debe
+            # mantener al menos 1 unidad para si misma).
+            disponible = principal_stock.quantity - 1
+            if disponible <= 0:
+                omitidas_sin_stock_principal += 1
+                log.info(
+                    "replenishment.product_skipped",
+                    bodega=wh.code,
+                    product_id=str(stock.product_id),
+                    motivo="principal con stock insuficiente (despues de margen)",
+                )
+                continue
+            if cantidad > disponible:
+                log.info(
+                    "replenishment.cantidad_ajustada",
+                    bodega=wh.code,
+                    product_id=str(stock.product_id),
+                    solicitada=cantidad,
+                    ajustada_a=disponible,
+                    motivo="principal no tiene stock suficiente para la cantidad original",
+                )
+                cantidad = disponible
             prioridad = _calcular_prioridad(stock)
             prioridades.add(prioridad)
             lineas.append(
@@ -307,6 +352,15 @@ class ReplenishmentEvaluator:
                     "id_producto": stock.product_id,
                     "cantidad_solicitada": cantidad,
                 }
+            )
+
+        # Reportar SKUs omitidos por falta de stock en la principal.
+        if omitidas_sin_stock_principal > 0:
+            log.info(
+                "replenishment.skipped_no_stock_principal",
+                bodega=wh.code,
+                omitidos=omitidas_sin_stock_principal,
+                motivo="principal sin stock disponible",
             )
 
         # Reportar SKUs omitidos por (bodega, producto) pendiente.

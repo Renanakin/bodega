@@ -108,6 +108,14 @@ class ReplenishmentTestBase(unittest.IsolatedAsyncioTestCase):
 
         Stock en AUX-2: sin stock bajo minimo.
         Stock en BOX-1 (hijo de AUX-1): sin stock bajo minimo.
+
+        BUG 15 (fix 2026-07-23): la principal debe tener stock > 0
+        de los SKUs a servir, si no el Evaluator los omite (no
+        crea solicitud fallida). Sembramos 100 unidades por SKU
+        activo para que la cantidad sugerida (max - actual) quepa
+        sin necesidad de ajustar. p_inactivo NO tiene stock en
+        principal para verificar que el Evaluator omite productos
+        inactivos correctamente.
         """
         from app.db.models.inventory import StockLevel
         from app.db.models.products import Product
@@ -275,6 +283,56 @@ class ReplenishmentTestBase(unittest.IsolatedAsyncioTestCase):
                         max_quantity=None,
                         updated_at=now,
                     ),
+                    # BUG 15 (fix 2026-07-23): sembrar stock en la principal
+                    # para que el Evaluator no omita los SKUs (el check
+                    # nuevo de stock disponible en principal requiere
+                    # que la principal tenga stock > 0 de cada SKU a
+                    # servir). Ponemos stock generoso (100 unidades por
+                    # SKU) para que la cantidad original sugerida no
+                    # tenga que ser ajustada.
+                    StockLevel(
+                        warehouse_id=self.principal_id,
+                        product_id=self.p1_id,
+                        quantity=Decimal("100"),
+                        min_quantity=Decimal("10"),
+                        max_quantity=Decimal("200"),
+                        updated_at=now,
+                    ),
+                    StockLevel(
+                        warehouse_id=self.principal_id,
+                        product_id=self.p2_id,
+                        quantity=Decimal("100"),
+                        min_quantity=Decimal("10"),
+                        max_quantity=Decimal("200"),
+                        updated_at=now,
+                    ),
+                    StockLevel(
+                        warehouse_id=self.principal_id,
+                        product_id=self.p3_id,
+                        quantity=Decimal("100"),
+                        min_quantity=Decimal("10"),
+                        max_quantity=Decimal("200"),
+                        updated_at=now,
+                    ),
+                    StockLevel(
+                        warehouse_id=self.principal_id,
+                        product_id=self.p4_id,
+                        quantity=Decimal("100"),
+                        min_quantity=Decimal("10"),
+                        max_quantity=Decimal("200"),
+                        updated_at=now,
+                    ),
+                    StockLevel(
+                        warehouse_id=self.principal_id,
+                        product_id=self.p5_id,
+                        quantity=Decimal("100"),
+                        min_quantity=Decimal("10"),
+                        max_quantity=Decimal("200"),
+                        updated_at=now,
+                    ),
+                    # NOTA: NO ponemos stock de p_inactivo en la principal
+                    # para verificar que el Evaluator lo omite
+                    # correctamente (producto inactivo).
                 ]
             )
             await session.commit()
@@ -587,13 +645,20 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
         from app.db.models.solicitudes import SolicitudRecarga
         from sqlalchemy import select
 
-        # Crear stock bajo minimo en PRINCIPAL y en BOX-1
+        # Crear stock bajo minimo en PRINCIPAL y en BOX-1.
+        # BUG 15 (fix 2026-07-23): ahora p1 YA EXISTE en la principal
+        # (sembrado en _seed_demo_data con 100 unidades para que el
+        # Evaluator pueda servir desde la principal). No podemos
+        # agregar OTRO stock_level de (principal, p1) porque el check
+        # nuevo en el Evaluator hace `scalar_one_or_none()` y fallaria
+        # con "Multiple rows". Usamos p_inactivo que NO esta en la
+        # principal y NO genera solicitudes (producto inactivo).
         async with self.session_factory() as session:
-            # Stock bajo minimo en Principal
+            # Stock bajo minimo en Principal (producto inactivo, no genera)
             session.add(
                 StockLevel(
                     warehouse_id=self.principal_id,
-                    product_id=self.p1_id,
+                    product_id=self.p_inactivo_id,
                     quantity=Decimal("0"),
                     min_quantity=Decimal("10"),
                     max_quantity=None,
@@ -641,6 +706,91 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
             )
             detalle = (await session.execute(stmt)).scalars().first()
             self.assertIsNone(detalle)  # producto inactivo NO aparece
+
+    async def test_evaluar_omite_sku_sin_stock_en_principal(self) -> None:
+        """BUG 15 (fix 2026-07-23): el Evaluator omite SKUs cuya principal
+        no tiene stock (evita generar solicitudes que el despacho
+        rechazaria con insufficient_stock)."""
+        from app.db.models.inventory import StockLevel
+        from app.db.models.solicitudes import DetalleSolicitudRecarga
+        from sqlalchemy import delete, select
+
+        # Eliminar TODO el stock de p2 en la principal (asi simula
+        # "principal no tiene este SKU"). p2 sigue bajo minimo en
+        # AUX-1 segun el seed, asi que el Evaluator intentaria
+        # procesarlo si no fuera por el check nuevo.
+        async with self.session_factory() as session:
+            stmt = delete(StockLevel).where(
+                StockLevel.warehouse_id == self.principal_id,
+                StockLevel.product_id == self.p2_id,
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+        async with self.session_factory() as session:
+            evaluator = ReplenishmentEvaluator(session)
+            report = await evaluator.evaluate_all()
+            await session.commit()
+
+        # p2 debe haberse omitido por falta de stock en principal.
+        # p1 y p4 (que SI tienen stock en principal) deben procesarse.
+        self.assertEqual(report.solicitudes_creadas, 1)
+        async with self.session_factory() as session:
+            stmt = select(DetalleSolicitudRecarga.id_producto).distinct()
+            productos_procesados = {
+                row[0] for row in (await session.execute(stmt)).all()
+            }
+        # p2 NO esta (omitido por BUG 15).
+        self.assertNotIn(self.p2_id, productos_procesados)
+        # p1 SI esta (tenia stock en principal).
+        self.assertIn(self.p1_id, productos_procesados)
+        # p4 SI esta (tenia stock en principal).
+        self.assertIn(self.p4_id, productos_procesados)
+
+    async def test_evaluar_ajusta_cantidad_si_principal_no_alcanza(self) -> None:
+        """BUG 15: si la principal tiene stock insuficiente para
+        la cantidad sugerida, ajustar a lo disponible (menos 1 de margen).
+
+        p2 esta bajo minimo en AUX-1: 5 unidades, min 10, max 50.
+        Cantidad sugerida = 50 - 5 = 45.
+        Ponemos stock de p2 en la principal = 10 (no alcanza para 45).
+        Resultado esperado: linea ajustada a 10 - 1 = 9.
+        """
+        from app.db.models.inventory import StockLevel
+        from app.db.models.solicitudes import DetalleSolicitudRecarga
+        from sqlalchemy import delete, select, update
+
+        async with self.session_factory() as session:
+            # Actualizar p2 en la principal a 10 unidades.
+            stmt = update(StockLevel).where(
+                StockLevel.warehouse_id == self.principal_id,
+                StockLevel.product_id == self.p2_id,
+            ).values(quantity=Decimal("10"))
+            await session.execute(stmt)
+            # Quitamos p1 y p4 de la principal para aislar el test a p2.
+            stmt = delete(StockLevel).where(
+                StockLevel.warehouse_id == self.principal_id,
+                StockLevel.product_id.in_([self.p1_id, self.p4_id]),
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+        async with self.session_factory() as session:
+            evaluator = ReplenishmentEvaluator(session)
+            report = await evaluator.evaluate_all()
+            await session.commit()
+
+        # La linea de p2 debe tener cantidad ajustada a 10 - 1 = 9
+        # (margen de 1 unidad para que la principal no se quede en 0).
+        async with self.session_factory() as session:
+            stmt = select(DetalleSolicitudRecarga).where(
+                DetalleSolicitudRecarga.id_producto == self.p2_id
+            )
+            linea = (await session.execute(stmt)).scalars().first()
+        self.assertIsNotNone(linea)
+        self.assertEqual(linea.cantidad_solicitada, Decimal("9"))
+        # Y se creo la solicitud (1 sola, con la linea ajustada).
+        self.assertEqual(report.solicitudes_creadas, 1)
 
     async def test_evaluar_asigna_prioridad_alta_si_stock_menor_a_min_50_por_ciento(self) -> None:
         """Si hay al menos 1 linea con ratio < 0.5, prioridad final = 'alta'."""

@@ -165,6 +165,12 @@ def create_app(db_path: str | None = None) -> FastAPI:  # noqa: ARG001
         environment=settings.environment,
     )
 
+    # BUG 13 (fix 2026-07-23): redirect_slashes=False en la app raiz
+    # y en el api_router. Ver apps/api/app/modules/ordenes_compra/router.py
+    # para el contexto completo. Es un safety net global: cuando un
+    # cliente olvida el trailing slash, Starlette responde 307 (redirect)
+    # que puede enmascarar errores. Con redirect_slashes=False, el 404
+    # es limpio.
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
@@ -172,6 +178,7 @@ def create_app(db_path: str | None = None) -> FastAPI:  # noqa: ARG001
         redoc_url="/redoc" if not settings.is_production else None,
         openapi_url="/openapi.json" if not settings.is_production else None,
         lifespan=lifespan,
+        redirect_slashes=False,
     )
 
     # CORS (R1: orígenes desde Settings, no hardcoded)
