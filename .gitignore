@@ -1,4 +1,4 @@
-.DS_Store
+﻿.DS_Store
 Thumbs.db
 
 # Orquestadores / tooling local
@@ -54,3 +54,13 @@ apps/api/*.sqlite3
 auditoria-fase0/
 # Auditoria local de fase 5 (smoke test scripts, logs)
 auditoria-fase5/
+
+# SSL/TLS artifacts (generados, no commitear)
+infra/docker/nginx/ssl/
+infra/docker/nginx/dhparam.pem
+*.crt
+*.key
+
+# Test logs (temporales, regenerables)
+tests/e2e/_run_*.log
+tests/e2e/_preprod_check.log

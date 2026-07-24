@@ -75,6 +75,17 @@ PROD_NORMAL = "9334392b-963c-4301-a9d6-aceada8a2173"  # PROD-NORMAL-44E53D
 # ---------------------------------------------------------------------------
 
 
+def _insecure() -> bool:
+    """True si el script debe aceptar certs HTTPS invalidos (dev only)."""
+    return os.environ.get("BOD_INSECURE", "0") == "1"
+
+
+def _verify_kwarg() -> dict:
+    """Retorna {'verify': False} si BOD_INSECURE=1, sino {}. Para pasar
+    a requests.get/post cuando se llama directamente (no via APIClient)."""
+    return {"verify": not _insecure()} if _insecure() else {}
+
+
 def _suffix() -> str:
     """Sufijo aleatorio corto para evitar colisiones entre corridas."""
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
@@ -105,7 +116,38 @@ class APIClient:
     def __init__(self, base: str = BASE) -> None:
         self.base = base
         self.s = requests.Session()
+        # Soporte para HTTPS con cert self-signed en dev (BOD_INSECURE=1).
+        # En prod NO se setea esta env, por lo que verify=True (default).
+        self._verify = True
+        if os.environ.get("BOD_INSECURE", "0") == "1":
+            self.s.verify = False
+            self._verify = False
+            # Suprimir el warning de InsecureRequestWarning
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         self.token: str | None = None
+
+    def get(self, path: str, **kw) -> requests.Response:
+        kw.setdefault("verify", self._verify)
+        return self.s.get(f"{self.base}{path}", timeout=TIMEOUT, **kw)
+
+    def post(self, path: str, json=None, **kw) -> requests.Response:
+        kw.setdefault("verify", self._verify)
+        return self.s.post(
+            f"{self.base}{path}",
+            json=_sanitize(json) if json is not None else None,
+            timeout=TIMEOUT,
+            **kw,
+        )
+
+    def patch(self, path: str, json=None, **kw) -> requests.Response:
+        kw.setdefault("verify", self._verify)
+        return self.s.patch(
+            f"{self.base}{path}",
+            json=_sanitize(json) if json is not None else None,
+            timeout=TIMEOUT,
+            **kw,
+        )
 
     def login(self, username: str, password: str) -> None:
         """Login con retry automatico si hay 429 (rate limit por username).
@@ -559,6 +601,7 @@ def escenario_a_happy_path(api: APIClient) -> dict:
         f"{BASE}/public/ordenes-compra/aprobar/{token}",
         timeout=TIMEOUT,
         headers={"X-Forwarded-For": "10.0.0.2"},
+        **_verify_kwarg(),
     )
     _check(r_pub, 200, "aprobar publica")
     pub = r_pub.json()
@@ -628,6 +671,7 @@ def escenario_b_descuadre(api: APIClient) -> dict:
         f"{BASE}/public/ordenes-compra/aprobar/{token}",
         timeout=TIMEOUT,
         headers={"X-Forwarded-For": "10.0.0.3"},
+        **_verify_kwarg(),
     )
     _check(r_pub, 200, "aprobar publica B")
     comprar_oc(api, oc_id)
@@ -697,6 +741,7 @@ def escenario_c_rechazo(api: APIClient) -> dict:
         json=_sanitize({"motivo": motivo}),
         timeout=TIMEOUT,
         headers={"X-Forwarded-For": "10.0.0.4"},
+        **_verify_kwarg(),
     )
     _check(r_pub, 200, "rechazar publica C")
     pub = r_pub.json()
