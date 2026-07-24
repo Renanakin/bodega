@@ -116,64 +116,128 @@ async def lock_or_404(repo, solicitud_id: uuid.UUID) -> SolicitudRecarga:
 async def to_view(session: AsyncSession, repo, solicitud_id: uuid.UUID) -> SolicitudView:
     """Construye la vista interna (dataclass) a partir del modelo.
 
-    Cachea bodegas y productos en la sesion actual para evitar N+1
-    al expandir todas las lineas.
+    IMPORTANTE (P0 del roadmap Big-O): esta funcion hace 4 queries
+    (1 solicitud + 2 bodegas + 1 detalles + 1 productos batch). NO es
+    N+1 por si misma, pero cuando se llama N veces (caso de listar)
+    se convierte en 4N queries. Para listados usar to_views_batch().
     """
     solicitud = await repo.get_by_id(solicitud_id)
     if solicitud is None:
         raise SolicitudNotFoundError(str(solicitud_id))
+    views = await to_views_batch(session, repo, [solicitud])
+    return views[0]
 
-    # Cache de bodegas y productos en esta sesion
-    wh_origen = await session.get(Warehouse, solicitud.id_bodega_origen)
-    wh_destino = await session.get(Warehouse, solicitud.id_bodega_destino)
 
-    detalles = list(await repo.list_detalles(solicitud.id))
-    detalles_view: list[dict] = []
-    total_unidades = Decimal("0")
-    product_ids = [d.id_producto for d in detalles]
-    productos: dict[uuid.UUID, Product] = {}
-    if product_ids:
-        stmt = select(Product).where(Product.id.in_(product_ids))
-        result = await session.execute(stmt)
-        for p in result.scalars().all():
-            productos[p.id] = p
+async def to_views_batch(
+    session: AsyncSession, repo, solicitudes: list[SolicitudRecarga]
+) -> list[SolicitudView]:
+    """Convierte N solicitudes a views en 4 queries fijas totales (no N+1).
 
-    for d in detalles:
-        prod = productos.get(d.id_producto)
-        detalles_view.append(
-            {
-                "id_solicitud": d.id_solicitud,
-                "id_producto": d.id_producto,
-                "product_sku": prod.sku if prod else None,
-                "product_name": prod.name if prod else None,
-                "cantidad_solicitada": d.cantidad_solicitada,
-                "cantidad_despachada": d.cantidad_despachada,
-                "cantidad_recibida": d.cantidad_recibida,
-                "barcode_validado": d.barcode_validado,
-                "notas": d.notas,
-            }
-        )
-        total_unidades += d.cantidad_solicitada
+    Queries (cuando N >= 1):
+      1. Detalles de TODAS las solicitudes: WHERE id_solicitud IN (...)
+      2. Productos en batch: WHERE id IN (product_ids unicos)
+      3. Bodegas origen en batch: WHERE id IN (origen_ids unicos)
+      4. Bodegas destino en batch: WHERE id IN (destino_ids unicos)
 
-    return SolicitudView(
-        id=solicitud.id,
-        codigo=solicitud.codigo,
-        id_bodega_origen=solicitud.id_bodega_origen,
-        id_bodega_origen_codigo=wh_origen.code if wh_origen else "",
-        id_bodega_origen_nombre=wh_origen.name if wh_origen else "",
-        id_bodega_origen_tipo=wh_origen.warehouse_type if wh_origen else "",
-        id_bodega_destino=solicitud.id_bodega_destino,
-        id_bodega_destino_codigo=wh_destino.code if wh_destino else "",
-        id_bodega_destino_nombre=wh_destino.name if wh_destino else "",
-        estado=api_estado(solicitud.estado),
-        prioridad=solicitud.prioridad,
-        notas=solicitud.notas,
-        motivo_rechazo=solicitud.motivo_rechazo,
-        created_at=solicitud.created_at,
-        approved_at=solicitud.approved_at,
-        dispatched_at=solicitud.dispatched_at,
-        received_at=solicitud.received_at,
-        detalles=detalles_view,
-        total_productos=len(detalles),
-        total_unidades=total_unidades,
+    Si N == 0, retorna lista vacia sin queries.
+
+    Antes del fix (P0): N solicitudes -> 4N queries.
+    Despues: 4 queries fijas independiente de N.
+
+    Performance: O(1) en queries independiente de n.
+    """
+    if not solicitudes:
+        return []
+
+    sol_ids = [s.id for s in solicitudes]
+    origen_ids = list({s.id_bodega_origen for s in solicitudes})
+    destino_ids = list({s.id_bodega_destino for s in solicitudes})
+
+    # Query 1: detalles en batch
+    # Usamos SELECT directo en DetalleSolicitudRecarga para evitar acoplar
+    # al repo (que tiene su propia logica de orden). En sqlite/aiosqlite
+    # in_(sol_ids) funciona con la PK compuesta.
+    from app.db.models.solicitudes import DetalleSolicitudRecarga
+
+    stmt_detalles = select(DetalleSolicitudRecarga).where(
+        DetalleSolicitudRecarga.id_solicitud.in_(sol_ids)
     )
+    detalles = list((await session.execute(stmt_detalles)).scalars().all())
+    detalles_by_sol: dict[uuid.UUID, list] = {}
+    for d in detalles:
+        detalles_by_sol.setdefault(d.id_solicitud, []).append(d)
+
+    # Query 2: productos (solo los que aparecen en los detalles)
+    product_ids = list({d.id_producto for d in detalles})
+    productos_by_id: dict[uuid.UUID, Product] = {}
+    if product_ids:
+        stmt_p = select(Product).where(Product.id.in_(product_ids))
+        productos_by_id = {
+            p.id: p for p in (await session.execute(stmt_p)).scalars().all()
+        }
+
+    # Query 3: bodegas origen en batch
+    origen_by_id: dict[uuid.UUID, Warehouse] = {}
+    if origen_ids:
+        stmt_wo = select(Warehouse).where(Warehouse.id.in_(origen_ids))
+        origen_by_id = {
+            w.id: w for w in (await session.execute(stmt_wo)).scalars().all()
+        }
+
+    # Query 4: bodegas destino en batch
+    destino_by_id: dict[uuid.UUID, Warehouse] = {}
+    if destino_ids:
+        stmt_wd = select(Warehouse).where(Warehouse.id.in_(destino_ids))
+        destino_by_id = {
+            w.id: w for w in (await session.execute(stmt_wd)).scalars().all()
+        }
+
+    # Construccion en memoria (O(n) sin queries adicionales)
+    views: list[SolicitudView] = []
+    for solicitud in solicitudes:
+        wh_origen = origen_by_id.get(solicitud.id_bodega_origen)
+        wh_destino = destino_by_id.get(solicitud.id_bodega_destino)
+        dets = detalles_by_sol.get(solicitud.id, [])
+        detalles_view: list[dict] = []
+        total_unidades = Decimal("0")
+        for d in dets:
+            prod = productos_by_id.get(d.id_producto)
+            detalles_view.append(
+                {
+                    "id_solicitud": d.id_solicitud,
+                    "id_producto": d.id_producto,
+                    "product_sku": prod.sku if prod else None,
+                    "product_name": prod.name if prod else None,
+                    "cantidad_solicitada": d.cantidad_solicitada,
+                    "cantidad_despachada": d.cantidad_despachada,
+                    "cantidad_recibida": d.cantidad_recibida,
+                    "barcode_validado": d.barcode_validado,
+                    "notas": d.notas,
+                }
+            )
+            total_unidades += d.cantidad_solicitada
+        views.append(
+            SolicitudView(
+                id=solicitud.id,
+                codigo=solicitud.codigo,
+                id_bodega_origen=solicitud.id_bodega_origen,
+                id_bodega_origen_codigo=wh_origen.code if wh_origen else "",
+                id_bodega_origen_nombre=wh_origen.name if wh_origen else "",
+                id_bodega_origen_tipo=wh_origen.warehouse_type if wh_origen else "",
+                id_bodega_destino=solicitud.id_bodega_destino,
+                id_bodega_destino_codigo=wh_destino.code if wh_destino else "",
+                id_bodega_destino_nombre=wh_destino.name if wh_destino else "",
+                estado=api_estado(solicitud.estado),
+                prioridad=solicitud.prioridad,
+                notas=solicitud.notas,
+                motivo_rechazo=solicitud.motivo_rechazo,
+                created_at=solicitud.created_at,
+                approved_at=solicitud.approved_at,
+                dispatched_at=solicitud.dispatched_at,
+                received_at=solicitud.received_at,
+                detalles=detalles_view,
+                total_productos=len(dets),
+                total_unidades=total_unidades,
+            )
+        )
+    return views

@@ -85,15 +85,22 @@ async def create_solicitud(
         raise WarehouseNotFoundError(str(id_bodega_destino))
     validate_direction(wh_origen, wh_destino)
 
-    # 3. Validar productos (existencia + activos)
+    # 3. Validar productos (existencia + activos).
+    # P0 (roadmap Big-O): 1 sola query batch con WHERE id IN (...).
+    # Antes: 1 query por producto = N+1.
+    from sqlalchemy import select
     productos_by_id: dict[uuid.UUID, Product] = {}
+    if product_ids:
+        stmt_p = select(Product).where(Product.id.in_(product_ids))
+        productos_by_id = {
+            p.id: p for p in (await session.execute(stmt_p)).scalars().all()
+        }
     for pid in product_ids:
-        p = await session.get(Product, pid)
+        p = productos_by_id.get(pid)
         if p is None:
             raise ProductNotFoundError(str(pid))
         if not p.is_active:
             raise ProductNotActiveError(str(pid), p.sku)
-        productos_by_id[pid] = p
 
     # 4. Generar codigo unico
     codigo = await repo.generate_unique_codigo(prefix="SOL")

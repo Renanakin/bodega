@@ -66,50 +66,106 @@ async def require_oc(session: AsyncSession, oc_id: uuid.UUID) -> OrdenCompra:
 
 
 async def to_view(session: AsyncSession, oc: OrdenCompra) -> OrdenCompraView:
-    """Construye la vista agregada a partir del modelo OC."""
-    detalles_stmt = select(DetalleOrdenCompra).where(DetalleOrdenCompra.id_orden_compra == oc.id)
-    detalles = list((await session.execute(detalles_stmt)).scalars().all())
-    # Cargar todos los productos en una sola query (evita N+1).
-    # Antes: 1 query por linea -> N+1. Ahora: 1 query con WHERE id IN (...).
-    product_ids = [d.id_producto for d in detalles]
+    """Construye la vista agregada a partir del modelo OC.
+
+    IMPORTANTE (P0 del roadmap Big-O): esta funcion hace 3 queries (1
+    detalles + 1 productos batch + 1 supervisor). NO es N+1 dentro de
+    si misma, pero cuando se llama N veces (caso de list_ordenes),
+    se convierte en N*3 queries. Para listados usar to_views_batch().
+    """
+    views = await to_views_batch(session, [oc])
+    return views[0]
+
+
+async def to_views_batch(
+    session: AsyncSession, ocs: list[OrdenCompra]
+) -> list[OrdenCompraView]:
+    """Convierte N OCs a views en 3 queries fijas totales (no N+1).
+
+    Queries (cuando N >= 1):
+      1. Detalles de TODAS las OCs en una sola query: WHERE id_orden_compra IN (...)
+      2. Productos en batch: WHERE id IN (product_ids unicos de los detalles)
+      3. Supervisores en batch: WHERE id IN (id_supervisor unicos)
+
+    Si N == 0, retorna lista vacia sin queries.
+
+    Antes del fix (P0): N OCs -> 3N queries (1 supervisor + 1 detalles
+    + 1 productos por cada OC). Con 1000 OCs = 3000 queries.
+    Despues: N OCs -> 3 queries fijas.
+
+    Performance: O(1) en queries independiente de n.
+    """
+    if not ocs:
+        return []
+
+    oc_ids = [oc.id for oc in ocs]
+    sup_ids = list({oc.id_supervisor for oc in ocs})
+
+    # Query 1: detalles de TODAS las OCs en una sola pasada
+    stmt_detalles = select(DetalleOrdenCompra).where(
+        DetalleOrdenCompra.id_orden_compra.in_(oc_ids)
+    )
+    detalles = list((await session.execute(stmt_detalles)).scalars().all())
+    detalles_by_oc: dict[uuid.UUID, list[DetalleOrdenCompra]] = {}
+    for d in detalles:
+        detalles_by_oc.setdefault(d.id_orden_compra, []).append(d)
+
+    # Query 2: productos (solo los que aparecen en los detalles)
+    product_ids = list({d.id_producto for d in detalles})
     productos_by_id: dict[uuid.UUID, Product] = {}
     if product_ids:
         stmt_productos = select(Product).where(Product.id.in_(product_ids))
-        productos = (await session.execute(stmt_productos)).scalars().all()
-        productos_by_id = {p.id: p for p in productos}
-    detalles_view: list[dict] = []
-    for d in detalles:
-        p = productos_by_id.get(d.id_producto)
-        detalles_view.append(
-            {
-                "id_orden_compra": d.id_orden_compra,
-                "id_producto": d.id_producto,
-                "product_sku": p.sku if p else None,
-                "product_name": p.name if p else None,
-                "cantidad_pedida": d.cantidad_pedida,
-                "costo_unitario_pactado": d.costo_unitario_pactado,
-            }
-        )
+        productos_by_id = {
+            p.id: p for p in (await session.execute(stmt_productos)).scalars().all()
+        }
 
-    sup = await session.get(Supervisor, oc.id_supervisor)
-    return OrdenCompraView(
-        id=oc.id,
-        codigo=oc.codigo,
-        id_bodega_principal=oc.id_bodega_principal,
-        id_supervisor=oc.id_supervisor,
-        supervisor_nombre=sup.nombre if sup else None,
-        supervisor_email=sup.email if sup else None,
-        proveedor_nombre=oc.proveedor_nombre,
-        proveedor_contacto=oc.proveedor_contacto,
-        estado=oc.estado.value,
-        total_estimado=oc.total_estimado,
-        notas=oc.notas,
-        motivo_rechazo=oc.motivo_rechazo,
-        email_enviado_at=oc.email_enviado_at,
-        email_token_jti=oc.email_token_jti,
-        aprobado_at=oc.aprobado_at,
-        comprado_at=oc.comprado_at,
-        created_at=oc.created_at,
-        updated_at=oc.created_at,  # modelo reusa created_at para updated_at
-        detalles=detalles_view,
-    )
+    # Query 3: supervisores en batch
+    sups_by_id: dict[uuid.UUID, Supervisor] = {}
+    if sup_ids:
+        stmt_sups = select(Supervisor).where(Supervisor.id.in_(sup_ids))
+        sups_by_id = {
+            s.id: s for s in (await session.execute(stmt_sups)).scalars().all()
+        }
+
+    # Construccion en memoria (O(n) pero sin queries adicionales)
+    views: list[OrdenCompraView] = []
+    for oc in ocs:
+        sup = sups_by_id.get(oc.id_supervisor)
+        dets = detalles_by_oc.get(oc.id, [])
+        detalles_view: list[dict] = []
+        for d in dets:
+            p = productos_by_id.get(d.id_producto)
+            detalles_view.append(
+                {
+                    "id_orden_compra": d.id_orden_compra,
+                    "id_producto": d.id_producto,
+                    "product_sku": p.sku if p else None,
+                    "product_name": p.name if p else None,
+                    "cantidad_pedida": d.cantidad_pedida,
+                    "costo_unitario_pactado": d.costo_unitario_pactado,
+                }
+            )
+        views.append(
+            OrdenCompraView(
+                id=oc.id,
+                codigo=oc.codigo,
+                id_bodega_principal=oc.id_bodega_principal,
+                id_supervisor=oc.id_supervisor,
+                supervisor_nombre=sup.nombre if sup else None,
+                supervisor_email=sup.email if sup else None,
+                proveedor_nombre=oc.proveedor_nombre,
+                proveedor_contacto=oc.proveedor_contacto,
+                estado=oc.estado.value,
+                total_estimado=oc.total_estimado,
+                notas=oc.notas,
+                motivo_rechazo=oc.motivo_rechazo,
+                email_enviado_at=oc.email_enviado_at,
+                email_token_jti=oc.email_token_jti,
+                aprobado_at=oc.aprobado_at,
+                comprado_at=oc.comprado_at,
+                created_at=oc.created_at,
+                updated_at=oc.created_at,  # modelo reusa created_at para updated_at
+                detalles=detalles_view,
+            )
+        )
+    return views

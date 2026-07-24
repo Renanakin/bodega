@@ -75,8 +75,11 @@ from app.modules.solicitudes.schemas import (
     StockBajoMinimoResponse,
     TransferDerivedResponse,
 )
+from app.core.cursor import apply_cursor, encode_cursor
+from app.db.models.solicitudes import SolicitudRecarga
 from app.modules.solicitudes.service import SolicitudService
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -156,8 +159,21 @@ async def create_solicitud(
 # ======================================================================= LIST
 
 
-@router.get("", response_model=list[SolicitudResponse])
+class SolicitudListResponse(BaseModel):
+    """Wrapper de paginacion cursor-based (P0 roadmap Big-O).
+
+    Devuelve items + next_cursor + has_more. Si el cliente NO manda
+    `cursor`, este endpoint devuelve la lista plana (compat backwards).
+    Si el cliente MANDA `cursor`, devuelve este wrapper con paginacion.
+    """
+    items: list[SolicitudResponse]
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
+@router.get("")
 async def list_solicitudes(
+    response: Response,
     # BUG 6 (fix 2026-07-22): estado acepta lista para que el
     # Consolidador pueda pedir ?estado=pending&estado=approved&estado=in_transit
     # en un solo GET. Antes la firma era ``str | None`` y FastAPI solo
@@ -169,6 +185,17 @@ async def list_solicitudes(
     bodega_destino_id: uuid.UUID | None = Query(default=None),
     fecha_desde: datetime | None = Query(default=None),
     fecha_hasta: datetime | None = Query(default=None),
+    cursor: str | None = Query(
+        default=None,
+        description="P0 (Big-O): cursor opaco. Si viene (incluso vacio), "
+                    "devuelve wrapper con paginacion. Usar ``paginated=1`` "
+                    "para forzar primera pagina con wrapper.",
+    ),
+    paginated: bool = Query(
+        default=False,
+        description="P0 (Big-O): si True, devuelve wrapper con paginacion "
+                    "aunque no se envie cursor (primera pagina).",
+    ),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(
         default=50,
@@ -181,12 +208,60 @@ async def list_solicitudes(
     ),
     _=Depends(get_current_user),
     service: SolicitudService = Depends(get_solicitud_service),
-) -> list[SolicitudResponse]:
-    """Lista solicitudes con filtros opcionales."""
+):
+    """Lista solicitudes con filtros opcionales.
+
+    P0 (roadmap Big-O): si se envia `cursor`, la respuesta es
+    ``SolicitudListResponse`` con paginacion cursor-based O(log n + p).
+    Sin cursor, la respuesta es la lista plana (compat hacia atras).
+    """
+    from app.core.cursor import InvalidCursorError
+
     # FastAPI entrega una lista vacia cuando el param no aparece; lo
     # normalizamos a None para que el service aplique la semantica
     # "sin filtro" en lugar de "estado IN ()" que devolveria vacio.
     estados = estado if estado else None
+
+    # P0: si hay cursor o el cliente pide paginacion explicita, ir a
+    # sesion y aplicar cursor.
+    if cursor is not None or paginated:
+        try:
+            stmt = select(SolicitudRecarga).order_by(
+                SolicitudRecarga.created_at.desc(),
+                SolicitudRecarga.id.desc(),
+            )
+            if estados:
+                stmt = stmt.where(SolicitudRecarga.estado.in_(estados))
+            if bodega_origen_id is not None:
+                stmt = stmt.where(SolicitudRecarga.id_bodega_origen == bodega_origen_id)
+            if bodega_destino_id is not None:
+                stmt = stmt.where(SolicitudRecarga.id_bodega_destino == bodega_destino_id)
+            if fecha_desde is not None:
+                stmt = stmt.where(SolicitudRecarga.created_at >= fecha_desde)
+            if fecha_hasta is not None:
+                stmt = stmt.where(SolicitudRecarga.created_at <= fecha_hasta)
+            stmt = apply_cursor(
+                stmt, cursor, SolicitudRecarga.created_at, SolicitudRecarga.id
+            )
+            stmt = stmt.limit(limit + 1)  # +1 para detectar has_more
+            result = await service._session.execute(stmt)
+            rows = list(result.scalars().all())
+            has_more = len(rows) > limit
+            rows = rows[:limit]
+            from app.modules.solicitudes.actions._common import to_views_batch
+            views = await to_views_batch(service._session, service._repo, rows)
+            next_cursor = (
+                encode_cursor(views[-1].created_at, views[-1].id) if has_more and views else None
+            )
+            return SolicitudListResponse(
+                items=[_view_to_response(v) for v in views],
+                next_cursor=next_cursor,
+                has_more=has_more,
+            )
+        except InvalidCursorError as e:
+            raise HTTPException(status_code=400, detail={"code": "invalid_cursor", "message": str(e)})
+
+    # Modo compat: lista plana con skip/limit
     views = await service.list(
         estado=estados,
         id_bodega_origen=bodega_origen_id,

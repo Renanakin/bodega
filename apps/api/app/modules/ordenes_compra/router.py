@@ -18,6 +18,8 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+from app.core.cursor import apply_cursor, encode_cursor
+from app.db.models.ordenes_compra import OrdenCompra
 from app.db.session import get_session
 from app.modules.auth.dependencies import require_roles
 from app.modules.auth.router import get_current_user
@@ -25,12 +27,14 @@ from app.modules.ordenes_compra.schemas import (
     DetalleOCResponse,
     EnviarCorreoResponse,
     OCCreate,
+    OCListResponse,
     OCResponse,
     OCUpdate,
     RechazoPayload,
 )
 from app.modules.ordenes_compra.service import OrdenCompraService
-from fastapi import APIRouter, Body, Depends, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # BUG 13 (fix 2026-07-23): redirect_slashes=False.
@@ -89,7 +93,7 @@ def _to_response(view) -> OCResponse:  # type: ignore[no-untyped-def]
 # --------------------------------------------------------------------------- LIST
 
 
-@router.get("", response_model=list[OCResponse])
+@router.get("")
 async def list_ordenes(
     estado: str | None = Query(
         default=None, description="borrador, enviado_a_supervisor, aprobado, rechazado, comprado"
@@ -97,16 +101,79 @@ async def list_ordenes(
     proveedor: str | None = Query(default=None, description="ILIKE sobre proveedor_nombre"),
     fecha_desde: date | None = Query(default=None, description="YYYY-MM-DD"),
     fecha_hasta: date | None = Query(default=None, description="YYYY-MM-DD"),
+    cursor: str | None = Query(
+        default=None,
+        description="P0 (Big-O): cursor opaco. Si viene, devuelve wrapper con paginacion.",
+    ),
+    paginated: bool = Query(
+        default=False,
+        description="P0 (Big-O): si True, devuelve wrapper con paginacion "
+                    "aunque no se envie cursor (primera pagina).",
+    ),
+    limit: int = Query(default=50, ge=1, le=200),
     _user=Depends(get_current_user),
     service: OrdenCompraService = Depends(get_orden_service),
-) -> list[OCResponse]:
+):
+    """Lista OCs con filtros.
+
+    P0 (roadmap Big-O): si se envia `cursor` o `paginated=true`, devuelve
+    ``OCListResponse`` con paginacion cursor-based O(log n + p). Sin
+    cursor, devuelve la lista plana (compat hacia atras) con `limit`
+    (cap 200).
+    """
+    from app.core.cursor import InvalidCursorError
+    from app.modules.ordenes_compra.queries.listar import list_ordenes as _list_ordenes_q
+
+    if cursor is not None or paginated:
+        try:
+            stmt = select(OrdenCompra).order_by(
+                OrdenCompra.created_at.desc(),
+                OrdenCompra.id.desc(),
+            )
+            if estado:
+                stmt = stmt.where(OrdenCompra.estado == estado)
+            if proveedor:
+                stmt = stmt.where(OrdenCompra.proveedor_nombre.ilike(f"%{proveedor}%"))
+            if fecha_desde is not None:
+                from datetime import UTC, datetime
+                stmt = stmt.where(
+                    OrdenCompra.created_at >= datetime.combine(fecha_desde, datetime.min.time(), tzinfo=UTC)
+                )
+            if fecha_hasta is not None:
+                from datetime import UTC, datetime
+                stmt = stmt.where(
+                    OrdenCompra.created_at <= datetime.combine(fecha_hasta, datetime.max.time(), tzinfo=UTC)
+                )
+            stmt = apply_cursor(
+                stmt, cursor, OrdenCompra.created_at, OrdenCompra.id
+            )
+            stmt = stmt.limit(limit + 1)
+            result = await service._session.execute(stmt)
+            ocs = list(result.scalars().all())
+            has_more = len(ocs) > limit
+            ocs = ocs[:limit]
+            from app.modules.ordenes_compra.actions._common import to_views_batch
+            views = await to_views_batch(service._session, ocs)
+            next_cursor = (
+                encode_cursor(views[-1].created_at, views[-1].id) if has_more and views else None
+            )
+            return OCListResponse(
+                items=[_to_response(v) for v in views],
+                next_cursor=next_cursor,
+                has_more=has_more,
+            )
+        except InvalidCursorError as e:
+            raise HTTPException(status_code=400, detail={"code": "invalid_cursor", "message": str(e)})
+
+    # Modo compat
     views = await service.list_ordenes(
         estado=estado,
         proveedor=proveedor,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
     )
-    return [_to_response(v) for v in views]
+    # Cap en compat mode para evitar respuestas enormes
+    return [_to_response(v) for v in views[:limit]]
 
 
 # -------------------------------------------------------------------------- CREATE

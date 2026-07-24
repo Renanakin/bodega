@@ -69,6 +69,17 @@ class OCResponse(BaseModel):
     detalles: list[DetalleOCResponse] = Field(default_factory=list)
 
 
+class OCListResponse(BaseModel):
+    """Wrapper de paginacion cursor-based (P0 roadmap Big-O).
+
+    Devuelve items + next_cursor + has_more. Si el cliente NO manda
+    `cursor`, este endpoint devuelve la lista plana (compat backwards).
+    """
+    items: list[OCResponse]
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
 class RechazoPayload(BaseModel):
     motivo: str = Field(min_length=1, max_length=500)
 

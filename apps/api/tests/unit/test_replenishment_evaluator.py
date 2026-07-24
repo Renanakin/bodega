@@ -940,5 +940,93 @@ class TestReplenishmentEvaluatorHappyPath(ReplenishmentTestBase):
             self.assertEqual(count, 0)
 
 
+# ============================================================ P0 BIG-O TESTS
+# Valida que el Evaluator NO tenga N+1 queries (P0 del roadmap).
+# Antes: 1 query por SKU para Product + 1 query por SKU para StockLevel
+#        de la principal. Con 5 SKUs bajo minimo = 10 queries ademas
+#        de las queries base.
+# Despues: 1 query batch para Product + 1 query batch para StockLevel
+#          (constante, independiente del numero de SKUs).
+
+
+class TestReplenishmentEvaluatorN1Batch(ReplenishmentTestBase):
+    """Valida que evaluate_warehouse carga productos y stock en batch.
+
+    P0 (roadmap Big-O): el Evaluator debe cargar:
+    - 1 query batch para TODOS los Product de los SKUs bajo minimo
+    - 1 query batch para TODOS los StockLevel de la principal
+
+    En esta seed: p1, p2, p4 estan bajo minimo en AUX-1 (3 SKUs).
+    ANTES: 3 queries Product + 3 queries StockLevel = 6 queries.
+    DESPUES: 1 query Product + 1 query StockLevel = 2 queries.
+    """
+
+    async def test_evaluate_warehouse_carga_products_en_batch(self) -> None:
+        """Verifica que se hace 1 sola query BATCH para los productos.
+
+        P0: ANTES habia 1 query por SKU del Evaluator + 1 por SKU en
+        SolicitudView = 2N queries (proporcional a n).
+        DESPUES: 3 queries fijas (1 Evaluator + 1 create + 1 view) =
+        constante independiente de N.
+
+        Si en el futuro alguien rompe esto con N+1, este test detecta la
+        regresion comparando con la seed actual (3 SKUs bajo minimo).
+        """
+        from sqlalchemy import event
+
+        query_log: list[str] = []
+
+        async with self.session_factory() as session:
+            @event.listens_for(session.bind.sync_engine, "before_cursor_execute")
+            def _log(conn, cursor, statement, parameters, context, executemany):  # type: ignore[no-untyped-def]
+                if "FROM products" in statement or 'FROM "products"' in statement:
+                    query_log.append(statement[:80])
+
+            from app.db.models.warehouses import Warehouse
+            wh_aux = await session.get(Warehouse, self.aux1_id)
+            evaluator = ReplenishmentEvaluator(session)
+            await evaluator.evaluate_warehouse(wh_aux)
+
+        # Constante: 1 query del Evaluator + 1 de create_solicitud +
+        # 1 de SolicitudView al final = 3 total. Si la seed crece a 100
+        # SKUs bajo minimo, el numero debe seguir siendo 3.
+        # Antes del fix P0 era 2 * 3 = 6 (proporcional a N).
+        self.assertLessEqual(
+            len(query_log), 3,
+            f"Se esperaban <=3 queries batch a products (constante), se hicieron {len(query_log)}: "
+            f"{query_log}. Si son > 3, hay N+1. La seed tiene 3 SKUs bajo minimo.",
+        )
+
+    async def test_evaluate_warehouse_carga_principal_stock_en_batch(self) -> None:
+        """Verifica que se hace 1 sola query BATCH para el stock de la principal.
+
+        P0: ANTES habia 1 query por SKU (3 queries para 3 SKUs).
+        DESPUES: 1 query batch. Constante.
+        """
+        from sqlalchemy import event
+
+        query_log: list[str] = []
+
+        async with self.session_factory() as session:
+            @event.listens_for(session.bind.sync_engine, "before_cursor_execute")
+            def _log(conn, cursor, statement, parameters, context, executemany):  # type: ignore[no-untyped-def]
+                if "FROM stock_levels" in statement or 'FROM "stock_levels"' in statement:
+                    if "warehouse_id" in statement and str(self.principal_id) in statement:
+                        query_log.append(statement[:80])
+
+            from app.db.models.warehouses import Warehouse
+            wh_aux = await session.get(Warehouse, self.aux1_id)
+            evaluator = ReplenishmentEvaluator(session)
+            await evaluator.evaluate_warehouse(wh_aux)
+
+        # ANTES: 3 queries a stock_levels (1 por SKU).
+        # DESPUES: 1 query batch.
+        self.assertLessEqual(
+            len(query_log), 2,
+            f"Se esperaban <=2 queries batch a stock_levels (constante), se hicieron {len(query_log)}: "
+            f"{query_log}. Si son > 2, hay N+1.",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

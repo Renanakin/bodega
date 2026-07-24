@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 from app.db.models.ordenes_compra import OrdenCompra
-from app.modules.ordenes_compra.actions._common import OrdenCompraView, to_view
+from app.modules.ordenes_compra.actions._common import OrdenCompraView, to_views_batch
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,10 @@ async def list_ordenes(
     fecha_hasta: date | None = None,
 ) -> list[OrdenCompraView]:
     """Lista OCs con filtros opcionales.
+
+    P0 (roadmap Big-O): usa to_views_batch() para evitar N+1.
+    Antes: 1 supervisor + 1 detalles por OC = 3N queries.
+    Despues: 3 queries fijas independiente de N.
 
     Args:
         estado: filtrar por estado exacto (borrador, enviado_a_supervisor, ...).
@@ -40,4 +44,5 @@ async def list_ordenes(
             OrdenCompra.created_at <= datetime.combine(fecha_hasta, datetime.max.time(), tzinfo=UTC)
         )
     result = await session.execute(stmt)
-    return [await to_view(session, o) for o in result.scalars().all()]
+    ocs = list(result.scalars().all())
+    return await to_views_batch(session, ocs)

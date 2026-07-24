@@ -248,6 +248,9 @@ class ReplenishmentEvaluator:
         # contabamos pending, asi que al aprobar una solicitud
         # (PENDING -> APPROVED) el Evaluator re-generaba la linea aunque
         # la solicitud aprobada seguia activa y la entrega era inminente.
+        #
+        # P0 (roadmap Big-O): cargar productos y stock de la principal
+        # en 2 queries fijas (antes 1 query por SKU = N+1).
         product_ids = [s.product_id for s in stocks]
         ESTADOS_ACTIVOS = (
             SolicitudEstado.PENDING.value,
@@ -275,6 +278,27 @@ class ReplenishmentEvaluator:
                 motivo="linea PENDING existente por producto",
             )
 
+        # P0 fix N+1: 1 sola query para TODOS los productos del batch
+        productos_by_id: dict[uuid.UUID, Product] = {}
+        if product_ids:
+            stmt_p = select(Product).where(Product.id.in_(product_ids))
+            productos_by_id = {
+                p.id: p for p in (await self._session.execute(stmt_p)).scalars().all()
+            }
+
+        # P0 fix N+1: 1 sola query para TODO el stock de la principal
+        # correspondiente a los productos del batch
+        principal_stocks_by_product: dict[uuid.UUID, StockLevel] = {}
+        if product_ids:
+            stmt_ps = select(StockLevel).where(
+                StockLevel.warehouse_id == principal.id,
+                StockLevel.product_id.in_(product_ids),
+            )
+            principal_stocks_by_product = {
+                s.product_id: s
+                for s in (await self._session.execute(stmt_ps)).scalars().all()
+            }
+
         # Construir lineas. Agrupamos por prioridad para no generar
         # 1 solicitud por SKU (eso seria ruido): una sola solicitud
         # por bodega con todas las lineas necesarias.
@@ -291,8 +315,8 @@ class ReplenishmentEvaluator:
             cantidad = _calcular_cantidad(stock)
             if cantidad <= 0:
                 continue
-            # Validar que el producto existe y esta activo
-            prod = await self._session.get(Product, stock.product_id)
+            # Validar que el producto existe y esta activo (P0: lookup en batch)
+            prod = productos_by_id.get(stock.product_id)
             if prod is None or not prod.is_active:
                 log.info(
                     "replenishment.product_skipped",
@@ -307,12 +331,8 @@ class ReplenishmentEvaluator:
             # rechazaba con `insufficient_stock` (la principal no
             # tiene el SKU). Si la principal no tiene el SKU, omitir.
             # Si tiene menos de lo necesario, ajustar la cantidad a
-            # lo disponible.
-            principal_stock_stmt = select(StockLevel).where(
-                StockLevel.warehouse_id == principal.id,
-                StockLevel.product_id == stock.product_id,
-            )
-            principal_stock = (await self._session.execute(principal_stock_stmt)).scalar_one_or_none()
+            # lo disponible. (P0: lookup en batch)
+            principal_stock = principal_stocks_by_product.get(stock.product_id)
             if principal_stock is None or principal_stock.quantity <= 0:
                 omitidas_sin_stock_principal += 1
                 log.info(

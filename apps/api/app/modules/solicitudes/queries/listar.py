@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from app.modules.solicitudes.actions._common import SolicitudView, to_view
+from app.modules.solicitudes.actions._common import SolicitudView, to_views_batch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -16,9 +16,12 @@ async def list_solicitudes(
     estado: str | list[str] | None = None,
     id_bodega_origen: uuid.UUID | None = None,
 ) -> list[SolicitudView]:
-    """Lista solicitudes con filtros (compat con tests previos)."""
+    """Lista solicitudes con filtros (compat con tests previos).
+
+    P0 (roadmap Big-O): usa to_views_batch() para evitar N+1.
+    """
     rows = await repo.list(estado=estado, id_bodega_origen=id_bodega_origen)
-    return [await to_view(session, repo, s.id) for s in rows]
+    return await to_views_batch(session, repo, rows)
 
 
 async def list_with_filters(
@@ -33,7 +36,10 @@ async def list_with_filters(
     skip: int = 0,
     limit: int = 50,
 ) -> list[SolicitudView]:
-    """Lista con filtros extendidos (Fase 3 prompt)."""
+    """Lista con filtros extendidos (Fase 3 prompt).
+
+    P0 (roadmap Big-O): usa to_views_batch() para evitar N+1.
+    """
     rows = await repo.list(
         estado=estado,
         id_bodega_origen=id_bodega_origen,
@@ -43,4 +49,4 @@ async def list_with_filters(
         skip=skip,
         limit=limit,
     )
-    return [await to_view(session, repo, s.id) for s in rows]
+    return await to_views_batch(session, repo, rows)
