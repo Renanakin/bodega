@@ -224,6 +224,17 @@ def reset_engine_cache() -> None:
     _engine = None
     _session_factory = None
 
+    # FIX (FASE B): tambien resetea el rate limiter para evitar que
+    # tests legacy (que no usan AsyncTestBase) acumulen counters entre
+    # tests. Es un side-effect inocuo en produccion porque
+    # ``reset_engine_cache()`` no se llama alli (solo en tests y runtime
+    # migrations).
+    try:
+        from app.core.rate_limit import reset_rate_limiter_for_tests
+        reset_rate_limiter_for_tests()
+    except Exception:
+        pass
+
 
 async def init_async_schema() -> None:
     """Crea todas las tablas declaradas en `Base.metadata` en el engine async.

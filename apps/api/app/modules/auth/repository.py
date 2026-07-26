@@ -383,15 +383,26 @@ def _legacy_user_to_record(row) -> UserRecord:
 
 
 def _legacy_session_to_record(row) -> SessionRecord:
+    # C5.1: ``sqlite3.Row`` no soporta ``.get()`` (a diferencia de dict).
+    # Usamos un wrapper minimal que devuelve None si la columna no existe
+    # (ej. BD legacy pre-C5.1 sin columna refresh_token).
+    def _safe_get(name: str) -> str | None:
+        try:
+            return row[name]
+        except (IndexError, KeyError):
+            return None
+
     return SessionRecord(
         id=UUID(row["id"]),
         user_id=UUID(row["user_id"]),
         token=row["token"],
-        # C5.1: fallback a derivado del token si la BD legacy no tiene
-        # la columna (schema pre-C5.1). Ver models.UserSession docstring.
-        refresh_token=row.get("refresh_token") or f"legacy-{row['token'][:32]}",
+        # Fallback a derivado del token si la BD legacy no tiene la
+        # columna (schema pre-C5.1). Ver models.UserSession docstring.
+        refresh_token=_safe_get("refresh_token") or f"legacy-{row['token'][:32]}",
         expires_at=datetime.fromisoformat(row["expires_at"]),
-        refresh_expires_at=datetime.fromisoformat(row.get("refresh_expires_at") or row["expires_at"]),
+        refresh_expires_at=datetime.fromisoformat(
+            _safe_get("refresh_expires_at") or row["expires_at"]
+        ),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 

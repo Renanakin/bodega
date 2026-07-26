@@ -45,6 +45,10 @@ class SQLiteDatabase:
         )
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
+        # FIX: registrar alias NOW() -> CURRENT_TIMESTAMP para que las
+        # migraciones SQL portables (mismas para Postgres y SQLite)
+        # funcionen en SQLite sin reescribirlas.
+        self._connection.create_function("NOW", 0, lambda: datetime.now(UTC).isoformat())
         # WAL mode (Write-Ahead Logging): permite que el engine async
         # (aiosqlite) y este legacy sync (sqlite3 stdlib) compartan el
         # mismo archivo sin "database is locked" en operaciones
@@ -140,6 +144,57 @@ class SQLiteDatabase:
             )
             """
         )
+
+        # FIX (FASE B + bug pre-existente): antes de aplicar las
+        # migraciones SQL, asegurarse de que las tablas existen. Las
+        # migraciones 0010+ usan `ALTER TABLE ... ADD COLUMN` (ej.
+        # 0011_refresh_tokens agrega `refresh_token` a `user_sessions`),
+        # lo cual falla con "no such column" si la tabla no existe.
+        #
+        # Caso problematico: tests que crean la BD legacy `:memory:` SIN
+        # haber pasado por `Base.metadata.create_all` (engine async).
+        # Antes de este fix, las migraciones se ejecutaban sobre una BD
+        # vacia y el ALTER TABLE fallaba, rompiendo TODA la suite legacy.
+        #
+        # Approach: emitir el DDL generado por SQLAlchemy directamente
+        # sobre `self._connection` (la conexion sqlite3 stdlib legacy).
+        # Asi NO necesitamos un engine separado, ni archivos temporales.
+        # Solo capturamos los DDL de los modelos y los ejecutamos via
+        # `self.execute_script`.
+        try:
+            from app.db import models  # noqa: F401  -- registra modelos en Base.metadata
+            from app.db.base import Base
+            from sqlalchemy import create_mock_engine
+            from sqlalchemy.schema import CreateTable as _CreateTable
+
+            # Crear un engine mock (no se conecta) solo para usar el
+            # compilador de DDL de SQLAlchemy. El dialecto sqlite
+            # genera el CREATE TABLE correcto para nuestro caso.
+            # `executor` recibe el SQL compilado pero no lo ejecuta.
+            dummy_engine = create_mock_engine("sqlite://", lambda *args, **kwargs: None)
+
+            with self._lock:
+                for table in Base.metadata.sorted_tables:
+                    # Saltar tablas que ya existen (idempotente)
+                    if self._connection.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                        (table.name,),
+                    ).fetchone() is not None:
+                        continue
+                    ddl = str(_CreateTable(table).compile(dummy_engine))
+                    self.execute_script(ddl)
+            # No dispose en mock engine (no es necesario, igual se libera)
+        except Exception as exc:  # noqa: BLE001
+            # No bloquear: si falla (ej. modelo no registrado), las
+            # migraciones se aplican igual y el ALTER fallara con un
+            # error explicito (mejor que un error silencioso).
+            import structlog
+
+            structlog.get_logger(__name__).warning(
+                "sqlite_legacy.create_all_pre_migration_failed",
+                error=str(exc),
+            )
+
         migrations_dir = get_settings().sqlite_migrations_dir
         if not migrations_dir.exists():
             return
@@ -151,11 +206,29 @@ class SQLiteDatabase:
             version = migration_path.name
             if version in applied:
                 continue
-            self.execute_script(migration_path.read_text(encoding="utf-8"))
-            self.execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)",
-                (version, utcnow().isoformat()),
-            )
+            # FIX: los ALTER TABLE ADD COLUMN no son idempotentes en SQLite
+            # pre-3.35. Si la columna ya existe (porque el modelo la
+            # incluye via create_all arriba), la migracion falla con
+            # "duplicate column name". Continuamos en ese caso (es benigno).
+            try:
+                self.execute_script(migration_path.read_text(encoding="utf-8"))
+                self.execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+                    (version, utcnow().isoformat()),
+                )
+            except sqlite3.OperationalError as exc:
+                # Errores esperados cuando la migracion es obsoleta o ya
+                # aplicada via create_all del modelo.
+                if "duplicate column" in str(exc).lower():
+                    # La columna ya existe (modelo la creo). Marcamos
+                    # como aplicada para no intentar de nuevo.
+                    self.execute(
+                        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+                        (version, utcnow().isoformat()),
+                    )
+                else:
+                    # Otro error: relanzar para que el caller sepa
+                    raise
         self._connection.commit()
 
 
