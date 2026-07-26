@@ -60,6 +60,14 @@ if ($Command) {
     }
 }
 
+# FASE 2.3 del plan_ejecucion_testing.md: pasar BOD_API al Python.
+# Default: localhost. Override via $env:BOD_API = "https://prod.example.com/api/v1".
+# El orquestador Python (run_all.py) tiene un guard que rechaza URLs
+# que parezcan de produccion a menos que pases --allow-prod.
+if (-not $env:BOD_API) {
+    $env:BOD_API = "http://localhost:8080/api/v1"
+}
+
 # Construir argumentos
 $pyArgs = @($RunAll, "--no-color")
 if ($Only) {

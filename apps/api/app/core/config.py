@@ -427,6 +427,9 @@ class Settings(BaseSettings):
         En ``production``:
         - ``secret_key`` DEBE estar seteado (no se acepta fallback a jwt_secret).
         - ``smtp_use_tls`` debe ser True (Fase 7, ADR-0004: STARTTLS obligatorio).
+        - ``debug`` DEBE ser False (OWASP A05:2021 — debug mode expone
+          stack traces, settings internos, variables de entorno, queries
+          SQL completas en responses 500. Prohibido en produccion).
         """
         if self.environment != "production":
             return self
@@ -440,6 +443,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "smtp_use_tls debe ser True en produccion (ADR-0004: "
                 "STARTTLS obligatorio para SMTP)."
+            )
+        if self.debug:
+            raise ValueError(
+                "debug=True esta PROHIBIDO en produccion (OWASP A05:2021). "
+                "El modo debug expone stack traces y settings internos en "
+                "responses 500. Desactivar antes de desplegar."
             )
         return self
 

@@ -27,6 +27,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -305,7 +306,42 @@ def main() -> int:
         "--no-color", action="store_true",
         help="Desactiva colores ANSI",
     )
+    parser.add_argument(
+        "--allow-prod",
+        action="store_true",
+        help="PERMITE correr contra un endpoint que parece produccion. "
+             "Por defecto se bloquea por seguridad (FASE 2.3 del plan).",
+    )
     args = parser.parse_args()
+
+    # FASE 2.3 del plan_ejecucion_testing.md: guard de aislamiento.
+    # Por defecto, NO permitimos que los tests E2E corran contra un
+    # endpoint que parezca produccion (production.example.com, prod.*, etc).
+    # Si el usuario REALMENTE quiere correr contra prod (smoke test post-deploy),
+    # debe usar --allow-prod explicitamente.
+    BOD_API = os.environ.get("BOD_API", "http://localhost:8080/api/v1")
+    if not args.allow_prod:
+        suspicious_markers = (
+            "prod.", "production.", ".prod", "-prod",
+            "live.", ".com", "staging-",  # tambien bloquea staging
+        )
+        # Permitir solo localhost y 127.0.0.1 y 0.0.0.0
+        if any(m in BOD_API.lower() for m in suspicious_markers) and "localhost" not in BOD_API.lower() and "127.0.0.1" not in BOD_API:
+            print(
+                f"\n[BLOCK] BOD_API parece apuntar a produccion: {BOD_API}",
+                file=sys.stderr,
+            )
+            print(
+                "       Por seguridad, los tests E2E no corren contra prod.",
+                file=sys.stderr,
+            )
+            print(
+                "       Si REALMENTE queres correrlos, usa --allow-prod",
+                file=sys.stderr,
+            )
+            return 2
+    # Pasamos BOD_API al ambiente para los tests que lo lean
+    os.environ["BOD_API"] = BOD_API
 
     # Filtrar tests segun --skip / --only
     selected: list[TestCase] = []
