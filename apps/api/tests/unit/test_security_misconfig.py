@@ -60,21 +60,36 @@ class TestDebugMode(AsyncTestBase, unittest.IsolatedAsyncioTestCase):
         Validamos:
         1. debug=True + ENVIRONMENT=production => ValueError al instanciar.
         2. debug=False + ENVIRONMENT=production => OK.
+
+        NOTA: el validator ``_validate_production_secrets`` corre en
+        ``mode="after"``, asi que cualquier regla de produccion falla
+        ANTES de poder inspeccionar debug. Para aislar el test, seteamos
+        ``SMTP_USE_TLS=true`` (la otra regla de prod) y asi el unico
+        error esperado es el de debug.
         """
         from app.core.config import get_settings
 
         original_env = os.environ.get("ENVIRONMENT")
         original_debug = os.environ.get("DEBUG")
+        original_smtp = os.environ.get("SMTP_USE_TLS")
         try:
             # Caso 1: debug=True en produccion debe fallar
             os.environ["ENVIRONMENT"] = "production"
             os.environ["DEBUG"] = "true"
+            # Satisfacer la otra regla de prod (smtp_use_tls) para que el
+            # unico error sea el de debug.
+            os.environ["SMTP_USE_TLS"] = "true"
             reset_settings_cache()
             with self.assertRaises(
                 ValueError,
                 msg="debug=True en produccion no fue rechazado",
-            ):
+            ) as cm:
                 get_settings()
+            # Verificar que el mensaje es especificamente sobre debug.
+            self.assertIn(
+                "debug", str(cm.exception).lower(),
+                f"Mensaje de error inesperado: {cm.exception}",
+            )
 
             # Caso 2: debug=False en produccion es OK
             os.environ["DEBUG"] = "false"
@@ -93,6 +108,10 @@ class TestDebugMode(AsyncTestBase, unittest.IsolatedAsyncioTestCase):
                 os.environ["DEBUG"] = original_debug
             else:
                 os.environ.pop("DEBUG", None)
+            if original_smtp is not None:
+                os.environ["SMTP_USE_TLS"] = original_smtp
+            else:
+                os.environ.pop("SMTP_USE_TLS", None)
             reset_settings_cache()
 
     async def test_no_hay_traceback_completo_en_500(self) -> None:
