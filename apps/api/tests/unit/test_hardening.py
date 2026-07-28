@@ -35,9 +35,17 @@ class TestGenerateSecrets:
         from pathlib import Path
 
         # tests/unit/test_hardening.py -> apps/api/tests/unit
-        # parents[4] = <repo>  (REPO_ROOT)
-        repo_root = Path(__file__).resolve().parents[4]
-        script_path = repo_root / "infra" / "scripts" / "generate-secrets.py"
+        # FIX FASE POST-E2E: en el container (Docker) el path puede
+        # ser /app/tests/... (3 niveles), asi que buscamos el script
+        # recorriendo hacia arriba hasta encontrarlo.
+        script_path = None
+        for ancestor in Path(__file__).resolve().parents:
+            candidate = ancestor / "infra" / "scripts" / "generate-secrets.py"
+            if candidate.exists():
+                script_path = candidate
+                break
+        if script_path is None:
+            pytest.skip("generate-secrets.py no encontrado en el arbol de padres")
         if not script_path.exists():
             pytest.skip(f"generate-secrets.py no encontrado en {script_path}")
         spec = importlib.util.spec_from_file_location("generate_secrets", script_path)
@@ -63,10 +71,16 @@ class TestGenerateSecrets:
         import sys
         from pathlib import Path
 
-        repo_root = Path(__file__).resolve().parents[4]
-        script_path = repo_root / "infra" / "scripts" / "generate-secrets.py"
-        if not script_path.exists():
-            pytest.skip(f"generate-secrets.py no encontrado en {script_path}")
+        # FIX FASE POST-E2E: buscar el script recorriendo hacia arriba
+        # (portable entre dev local y container Docker con /app/...).
+        script_path = None
+        for ancestor in Path(__file__).resolve().parents:
+            candidate = ancestor / "infra" / "scripts" / "generate-secrets.py"
+            if candidate.exists():
+                script_path = candidate
+                break
+        if script_path is None:
+            pytest.skip("generate-secrets.py no encontrado en el arbol de padres")
         spec = importlib.util.spec_from_file_location("generate_secrets", script_path)
         if spec is None or spec.loader is None:
             pytest.skip("No se pudo cargar generate-secrets.py")
