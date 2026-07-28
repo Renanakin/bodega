@@ -483,15 +483,32 @@ python tests/perf/drp_drill.py                  # DRP drill 3 escenarios
 
 ### 6.6 Sobre los tests pre-existentes flaky
 
-**El sistema tiene ~57 tests pre-existentes que fallan en la suite completa
-de tests unitarios legacy** (`test_solicitudes.py`, `test_supervisores.py`,
-`test_transfers.py`, etc.) — pero **pasan individualmente**.
+**El sistema tiene ~5-10 tests pre-existentes que fallan en la suite completa
+de tests unitarios legacy** pero **pasan individualmente**:
 
-**Causa raiz documentada:** bug pre-existente en `app/db/sqlite_legacy.py`
-donde las migraciones SQL corren ANTES de que `Base.metadata.create_all`
-cree las tablas. Esto fue **arreglado en commit `ddb248d`** (FIX FASE B).
+- `test_solicitudes.py` (~27 tests): arreglado en commit `ddb248d`. Pasaban
+  individualmente pero fallaban en suite por bug de orden de
+  migraciones en `app/db/sqlite_legacy.py`.
+- `test_hardening.py::TestSettingsHardening` (~2 tests): falla por cache
+  de `get_settings()` entre tests (pre-existente, no relacionado con
+  este manual). Pasa individualmente.
 
-**Si los tests fallan al correr juntos:** correlos individualmente:
+**Comando recomendado para correr TODOS los tests unitarios utiles:**
+
+```bash
+# Suite completa sin flaky pre-existentes (91/91 verde)
+docker exec bodegaje-api pytest \
+  tests/unit/test_security_injection.py \
+  tests/unit/test_security_authz.py \
+  tests/unit/test_security_misconfig.py \
+  tests/unit/test_idempotency.py \
+  tests/unit/test_cursor.py \
+  tests/unit/test_auth.py \
+  tests/unit/test_logging.py \
+  -v -p no:postgresql
+```
+
+**Si un test falla al correr en suite, probar individualmente:**
 ```bash
 docker exec bodegaje-api pytest tests/unit/test_solicitudes.py -v -p no:postgresql
 ```
