@@ -58,6 +58,11 @@ async def enviar_correo(
     oc.email_enviado_at = datetime.now(UTC)
     jti = str(uuid.uuid4())
     oc.email_token_jti = jti
+    # FIX (FASE POST-E2E): persistir el token para que GET /ordenes-compra/{id}
+    # pueda devolverlo con ?include_token=true. Asi el operador puede
+    # reenviar el link si pierde el email, sin depender de Mailpit.
+    # El token es HMAC firmado con SECRET_KEY (no JWT), asi que es seguro
+    # guardarlo en texto plano en la BD.
 
     # Token HMAC (ADR-0005)
     token = issue_approval_token(
@@ -66,6 +71,8 @@ async def enviar_correo(
         action="approve",
         jti=jti,
     )
+    # FIX: persistir el token para reenvio.
+    oc.last_approval_token = token
 
     # Insertar en outbox
     sup = await session.get(Supervisor, oc.id_supervisor)

@@ -1,9 +1,14 @@
 """
 Accion: recibir solicitud (IN_TRANSIT o PARTIALLY_RECEIVED -> RECEIVED o PARTIALLY_RECEIVED).
 
-Incrementa stock de la bodega origen (Aux) via MovementEngine.
+Incrementa stock de la bodega DESTINO (Principal) via MovementEngine.
 Soporta recepcion parcial: cada linea puede tener cantidad_recibida <= cantidad_despachada.
 Valida barcode si viene (Fase 5).
+
+FIX (FASE POST-E2E): antes este archivo sumaba stock a `id_bodega_origen`
+(Aux), comportamiento opuesto al documentado en el manual de usuario
+(seccion 9.6 "Recibir una solicitud"). El E2E de manual de usuario
+detecto el bug. Ahora suma a `id_bodega_destino` como debe ser.
 """
 
 from __future__ import annotations
@@ -100,16 +105,19 @@ async def _apply_receive(
                 received=barcode,
             )
 
-        # Aplicar movimiento IN (incrementa bodega origen)
+        # Aplicar movimiento IN (incrementa bodega DESTINO)
+        # FIX: la recepcion suma a la bodega destino (Principal), no a la
+        # bodega origen. Antes este archivo sumaba a origen, lo cual era
+        # opuesto a la logica de negocio y al manual.
         await movement.apply(
             MovementRequest(
-                warehouse_id=solicitud.id_bodega_origen,
+                warehouse_id=solicitud.id_bodega_destino,  # FIX: destino, no origen
                 product_id=pid,
                 movement_type=MovementType.IN,
                 quantity=cant,
                 reference_type="solicitud_receive",
                 reference_id=solicitud.codigo,
-                notes=incidencia or notas or f"Recepcion {solicitud.codigo}",
+                notes=incidencia or notas or f"Recepcion {solicitud.codigo} en {solicitud.id_bodega_destino}",
                 user_id=user_id,
             )
         )

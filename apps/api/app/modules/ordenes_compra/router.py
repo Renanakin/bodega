@@ -53,8 +53,15 @@ def get_orden_service(session: AsyncSession = Depends(get_session)) -> OrdenComp
     return OrdenCompraService(session)
 
 
-def _to_response(view) -> OCResponse:  # type: ignore[no-untyped-def]
-    """Adapta `OrdenCompraView` a `OCResponse`."""
+def _to_response(view, last_approval_token: str | None = None) -> OCResponse:  # type: ignore[no-untyped-def]
+    """Adapta `OrdenCompraView` a `OCResponse`.
+
+    Args:
+        view: OrdenCompraView (dataclass con los datos de la OC).
+        last_approval_token: Si viene, lo expone en el response. Solo el
+            endpoint GET con ``?include_token=true`` lo pasa; el resto
+            nunca expone el token.
+    """
     return OCResponse(
         id=view.id,
         codigo=view.codigo,
@@ -73,6 +80,7 @@ def _to_response(view) -> OCResponse:  # type: ignore[no-untyped-def]
         comprado_at=view.comprado_at,
         created_at=view.created_at,
         updated_at=view.updated_at,
+        last_approval_token=last_approval_token,
         detalles=[
             DetalleOCResponse(
                 id_orden_compra=d["id_orden_compra"],
@@ -202,11 +210,40 @@ async def create_oc(
 @router.get("/{oc_id}", response_model=OCResponse)
 async def get_oc(
     oc_id: uuid.UUID,
-    _user=Depends(get_current_user),
+    include_token: bool = Query(
+        default=False,
+        description=(
+            "FIX FASE POST-E2E: si True, devuelve tambien el "
+            "``last_approval_token`` (ultimo token generado al enviar el "
+            "correo al supervisor). Solo admin/supervisor pueden usar "
+            "este flag; otros roles lo reciben como 403."
+        ),
+    ),
+    user=Depends(get_current_user),
     service: OrdenCompraService = Depends(get_orden_service),
 ) -> OCResponse:
     view = await service.get_orden(oc_id)
-    return _to_response(view)
+    last_token = None
+    if include_token:
+        # Solo admin o supervisor pueden pedir el token.
+        if user.role not in ("admin", "supervisor"):
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "forbidden",
+                    "message": "include_token=true requiere rol admin o supervisor",
+                },
+            )
+        # Cargar el token persistido en la fila (no en la view).
+        from sqlalchemy import select
+        from app.db.models.ordenes_compra import OrdenCompra
+        oc_row = await service._session.execute(
+            select(OrdenCompra).where(OrdenCompra.id == oc_id)
+        )
+        oc_obj = oc_row.scalar_one_or_none()
+        last_token = oc_obj.last_approval_token if oc_obj else None
+    return _to_response(view, last_approval_token=last_token)
 
 
 # ---------------------------------------------------------------------------- UPDATE

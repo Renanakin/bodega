@@ -64,6 +64,11 @@ class OrdenCompra(Base):
     email_enviado_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     aprobado_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     comprado_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    # FIX (FASE POST-E2E): persistir el ultimo token generado al enviar
+    # el correo. Asi el operador puede reenviar el link si pierde el
+    # email, sin tener que esperar a que el worker reprocese el outbox.
+    # Solo roles admin/supervisor pueden leerlo via ?include_token=true.
+    last_approval_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at = created_at_column()
     updated_at = created_at_column()  # reused for simplicity
 

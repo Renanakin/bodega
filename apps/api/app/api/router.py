@@ -17,6 +17,7 @@ from app.modules.ordenes_compra.router import router as ordenes_router
 from app.modules.product_extension.router import router as product_extension_router
 from app.modules.products.router import router as products_router
 from app.modules.proveedores.router import router as proveedores_router
+from app.modules.receipts.router import router as receipts_router
 from app.modules.reports.router import router as reports_router
 from app.modules.solicitudes.router import router as solicitudes_router
 from app.modules.stock_real.router import router as stock_real_router
@@ -51,6 +52,8 @@ api_router.include_router(inventory_router, prefix="/inventory", tags=["inventor
 api_router.include_router(solicitudes_router, prefix="/solicitudes", tags=["solicitudes"])
 api_router.include_router(supervisores_router, prefix="/supervisores", tags=["supervisores"])
 api_router.include_router(proveedores_router, prefix="/proveedores", tags=["proveedores"])
+# Recepciones (FIX FASE POST-E2E) — modulo documentado en manual seccion 8.
+api_router.include_router(receipts_router, prefix="/receipts", tags=["receipts"])
 api_router.include_router(ordenes_router, prefix="/ordenes-compra", tags=["ordenes_compra"])
 # Public router (sin auth, rate limited) - ADR-0005
 # Path completo: /api/v1/public/ordenes-compra/{aprobar,rechazar}/{token}

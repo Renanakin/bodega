@@ -66,6 +66,9 @@ class OCResponse(BaseModel):
     comprado_at: datetime | None
     created_at: datetime
     updated_at: datetime | None
+    # FIX (FASE POST-E2E): expone el token solo si el caller lo pide
+    # explicitamente via ?include_token=true. None por default.
+    last_approval_token: str | None = None
     detalles: list[DetalleOCResponse] = Field(default_factory=list)
 
 

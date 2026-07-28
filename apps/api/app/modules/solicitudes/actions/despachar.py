@@ -1,9 +1,16 @@
 """
 Accion: despachar solicitud (APPROVED -> IN_TRANSIT).
 
-Descuenta stock de la bodega destino (Principal) via MovementEngine.
-El origen (Aux) aun no tiene unidades; las recibira cuando el auxiliar
-las confirma via `receive` (ver actions/recibir.py).
+Descuenta stock de la bodega ORIGEN (Aux) via MovementEngine, porque
+el operador de origen esta preparando el pedido y sacando unidades de
+su bodega. El destino (Principal) las recibe via `receive`
+(ver actions/recibir.py) que suma a la bodega destino.
+
+FIX (FASE POST-E2E): antes este archivo restaba stock de `id_bodega_destino`
+(Principal), comportamiento opuesto al documentado en el manual de usuario
+(seccion 9.5 "Despachar una solicitud") y a la logica de negocio esperada.
+El E2E de manual de usuario (auditoria-fase5/e2e_manual_usuario.py)
+detecto el bug. Ahora descuenta de `id_bodega_origen` como debe ser.
 """
 
 from __future__ import annotations
@@ -73,7 +80,10 @@ async def _apply_dispatch(
                 f"({detalle.cantidad_solicitada}) para producto {pid}"
             )
 
-    # 2. Aplicar movimientos OUT via MovementEngine (descuenta de Principal)
+    # 2. Aplicar movimientos OUT via MovementEngine (descuenta de ORIGEN)
+    # FIX: el operador de origen esta preparando el pedido, asi que el
+    # stock sale de SU bodega. Antes restaba de destino, que era el
+    # comportamiento inverso al manual.
     now = utcnow()
     for linea in lineas:
         pid = linea["id_producto"]
@@ -82,13 +92,13 @@ async def _apply_dispatch(
             continue
         await movement.apply(
             MovementRequest(
-                warehouse_id=solicitud.id_bodega_destino,  # Principal
+                warehouse_id=solicitud.id_bodega_origen,  # FIX: origen, no destino
                 product_id=pid,
                 movement_type=MovementType.OUT,
                 quantity=cant,
                 reference_type="solicitud_dispatch",
                 reference_id=solicitud.codigo,
-                notes=notas or f"Despacho {solicitud.codigo} desde Principal",
+                notes=notas or f"Despacho {solicitud.codigo} desde {solicitud.id_bodega_origen}",
                 user_id=user_id,
             )
         )

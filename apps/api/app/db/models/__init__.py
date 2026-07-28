@@ -29,6 +29,9 @@ from app.db.models.products import Product
 # Proveedores
 from app.db.models.proveedores import Proveedor
 
+# Recepciones (FIX FASE POST-E2E: modulo documentado en manual pero no implementado)
+from app.db.models.receipts import Receipt, ReceiptLine
+
 # Solicitudes
 from app.db.models.solicitudes import (
     DetalleSolicitudRecarga,
@@ -81,4 +84,7 @@ __all__ = [
     # Notificaciones in-app (Fase 8)
     "Notificacion",
     "NotificationType",
+    # Recepciones (FIX FASE POST-E2E)
+    "Receipt",
+    "ReceiptLine",
 ]
